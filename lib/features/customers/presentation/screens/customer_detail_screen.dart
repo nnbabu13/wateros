@@ -67,7 +67,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
         setState(() {
           _customer = results[0] as Map<String, dynamic>;
           _sales = salesList;
-          _payments = List<Map<String, dynamic>>.from(results[3] as List);
+          _payments = List<Map<String, dynamic>>.from(results[2] as List);
           _isLoading = false;
         });
       }
