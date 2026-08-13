@@ -49,6 +49,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       final results = await Future.wait([custFuture, salesFuture, paymentsFuture]);
       
       final salesList = List<Map<String, dynamic>>.from(results[1] as List);
+      final paymentsList = List<Map<String, dynamic>>.from(results[2] as List);
       
       // Fetch sale items for each sale
       for (var sale in salesList) {
@@ -63,11 +64,28 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
         }
       }
 
+      // Recalculate and fix current_balance to stay in sync
+      final totalSalesCalc = salesList.fold<double>(0, (s, sale) => s + ((sale['total_amount'] as num?)?.toDouble() ?? 0));
+      final totalPaidCalc = paymentsList.fold<double>(0, (s, p) => s + ((p['amount'] as num?)?.toDouble() ?? 0));
+      final correctBalance = totalSalesCalc - totalPaidCalc;
+
+      // Update the database if current_balance is wrong
+      final currentDbBalance = (results[0] as Map<String, dynamic>?)?['current_balance'];
+      final dbBalance = (currentDbBalance as num?)?.toDouble() ?? 0;
+      if ((dbBalance - correctBalance).abs() > 0.01) {
+        try {
+          await Supabase.instance.client
+              .from('customers')
+              .update({'current_balance': correctBalance})
+              .eq('id', widget.customerId);
+        } catch (_) {}
+      }
+
       if (mounted) {
         setState(() {
           _customer = results[0] as Map<String, dynamic>;
           _sales = salesList;
-          _payments = List<Map<String, dynamic>>.from(results[2] as List);
+          _payments = paymentsList;
           _isLoading = false;
         });
       }
@@ -87,10 +105,10 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     }
 
     final cs = Theme.of(context).colorScheme;
-    final balance = (c['current_balance'] as num?)?.toDouble() ?? 0;
     final creditLimit = (c['credit_limit'] as num?)?.toDouble() ?? 0;
     final totalSales = _sales.fold<double>(0, (s, sale) => s + ((sale['total_amount'] as num?)?.toDouble() ?? 0));
     final totalPaid = _payments.fold<double>(0, (s, p) => s + ((p['amount'] as num?)?.toDouble() ?? 0));
+    final balance = totalSales - totalPaid;
 
     return Scaffold(
       appBar: AppBar(
@@ -578,6 +596,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   Future<void> _showRecordPaymentDialog() async {
     final amountController = TextEditingController();
     String mode = 'cash';
+    final totalSalesVal = _sales.fold<double>(0, (s, sale) => s + ((sale['total_amount'] as num?)?.toDouble() ?? 0));
+    final totalPaidVal = _payments.fold<double>(0, (s, p) => s + ((p['amount'] as num?)?.toDouble() ?? 0));
+    final balanceDue = totalSalesVal - totalPaidVal;
     final result = await showDialog<Map<String, dynamic>>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -588,7 +609,7 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
             children: [
               Text('Customer: ${_customer?['name']}', style: const TextStyle(fontSize: 13)),
               const SizedBox(height: 4),
-              Text('Balance Due: ₹${(_customer?['current_balance'] as num?)?.toDouble().toStringAsFixed(0) ?? '0'}',
+              Text('Balance Due: ₹${balanceDue.toStringAsFixed(0)}',
                   style: const TextStyle(fontSize: 13, color: Colors.red, fontWeight: FontWeight.w600)),
               const SizedBox(height: 16),
               TextField(
