@@ -17,6 +17,7 @@ class SaleDetailScreen extends ConsumerStatefulWidget {
 class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
   Map<String, dynamic>? _sale;
   List<Map<String, dynamic>> _items = [];
+  List<Map<String, dynamic>> _payments = [];
   bool _isLoading = true;
 
   @override
@@ -27,21 +28,30 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
 
   Future<void> _loadSale() async {
     try {
-      final saleData = await Supabase.instance.client
+      final saleFuture = Supabase.instance.client
           .from('sales')
           .select('*, customer:customers(name, phone, address, gst_number)')
           .eq('id', widget.saleId)
           .single();
 
-      final itemsData = await Supabase.instance.client
+      final itemsFuture = Supabase.instance.client
           .from('sale_items')
           .select()
           .eq('sale_id', widget.saleId);
 
+      final paymentsFuture = Supabase.instance.client
+          .from('payments')
+          .select()
+          .eq('sale_id', widget.saleId)
+          .order('created_at');
+
+      final results = await Future.wait([saleFuture, itemsFuture, paymentsFuture]);
+
       if (mounted) {
         setState(() {
-          _sale = saleData;
-          _items = List<Map<String, dynamic>>.from(itemsData);
+          _sale = results[0] as Map<String, dynamic>;
+          _items = List<Map<String, dynamic>>.from(results[1] as List);
+          _payments = List<Map<String, dynamic>>.from(results[2] as List);
           _isLoading = false;
         });
       }
@@ -382,7 +392,6 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
   Widget _buildPaymentInfo(ColorScheme cs) {
     final paid = (_sale!['paid_amount'] as num?)?.toDouble() ?? 0;
     final balance = (_sale!['balance_amount'] as num?)?.toDouble() ?? 0;
-    final paymentMode = _sale!['payment_mode'] as String? ?? '';
     final notes = _sale!['notes'] as String? ?? '';
 
     return Card(
@@ -402,19 +411,63 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
               ],
             ),
             const Divider(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Paid Amount'),
-                Text(
-                  '₹ ${paid.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w500, color: Colors.green),
-                ),
-              ],
-            ),
+            if (_payments.isNotEmpty) ...[
+              ...List.generate(_payments.length, (index) {
+                final p = _payments[index];
+                final amount = (p['amount'] as num?)?.toDouble() ?? 0;
+                final mode = (p['payment_mode'] as String? ?? '').toUpperCase().replaceAll('_', ' ');
+                final date = p['payment_date'] as String? ?? '';
+                return Container(
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  decoration: index < _payments.length - 1
+                      ? const BoxDecoration(
+                          border: Border(bottom: BorderSide(color: Color(0xFFE0E0E0))),
+                        )
+                      : null,
+                  child: Row(
+                    children: [
+                      Icon(
+                        _paymentModeIcon(p['payment_mode'] as String? ?? ''),
+                        size: 18,
+                        color: cs.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(mode, style: const TextStyle(fontWeight: FontWeight.w500)),
+                            if (date.isNotEmpty)
+                              Text(
+                                DateFormat('dd MMM yyyy').format(DateTime.parse(date)),
+                                style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                              ),
+                          ],
+                        ),
+                      ),
+                      Text(
+                        '₹ ${amount.toStringAsFixed(2)}',
+                        style: const TextStyle(fontWeight: FontWeight.w600, color: Colors.green),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ] else ...[
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('Paid Amount'),
+                  Text(
+                    '₹ ${paid.toStringAsFixed(2)}',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w500, color: Colors.green),
+                  ),
+                ],
+              ),
+            ],
             if (balance > 0) ...[
-              const SizedBox(height: 4),
+              const SizedBox(height: 8),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -423,19 +476,6 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
                     '₹ ${balance.toStringAsFixed(2)}',
                     style: const TextStyle(
                         fontWeight: FontWeight.w500, color: Colors.red),
-                  ),
-                ],
-              ),
-            ],
-            if (paymentMode.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text('Payment Mode'),
-                  Text(
-                    paymentMode.toUpperCase().replaceAll('_', ' '),
-                    style: const TextStyle(fontWeight: FontWeight.w500),
                   ),
                 ],
               ),
@@ -451,6 +491,19 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
         ),
       ),
     );
+  }
+
+  IconData _paymentModeIcon(String mode) {
+    switch (mode) {
+      case 'cash':
+        return Icons.money;
+      case 'upi':
+        return Icons.qr_code;
+      case 'bank_transfer':
+        return Icons.account_balance;
+      default:
+        return Icons.payment;
+    }
   }
 
   Future<void> _deleteSale() async {

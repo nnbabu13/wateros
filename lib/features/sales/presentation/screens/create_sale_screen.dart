@@ -29,6 +29,15 @@ class _SaleLineItem {
   double get lineTotal => taxableAmount + gstAmount;
 }
 
+class _PaymentEntry {
+  String mode;
+  double amount;
+  final TextEditingController controller;
+
+  _PaymentEntry({this.mode = 'cash', this.amount = 0})
+      : controller = TextEditingController(text: amount > 0 ? amount.toStringAsFixed(2) : '');
+}
+
 class CreateSaleScreen extends ConsumerStatefulWidget {
   const CreateSaleScreen({super.key});
 
@@ -40,14 +49,13 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
   final _formKey = GlobalKey<FormState>();
   final _searchProductController = TextEditingController();
   final _notesController = TextEditingController();
-  final _paidAmountController = TextEditingController(text: '0');
 
   List<Map<String, dynamic>> _customers = [];
   List<Map<String, dynamic>> _allProducts = [];
   List<Map<String, dynamic>> _filteredProducts = [];
   Map<String, dynamic>? _selectedCustomer;
   List<_SaleLineItem> _lineItems = [];
-  String _paymentMode = 'cash';
+  List<_PaymentEntry> _paymentEntries = [];
   DateTime _invoiceDate = DateTime.now();
   bool _isLoading = false;
   bool _isLoadingData = true;
@@ -58,6 +66,7 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
     super.initState();
     _loadData();
     _lineItems.add(_SaleLineItem());
+    _paymentEntries.add(_PaymentEntry());
   }
 
   Future<void> _loadData() async {
@@ -158,6 +167,22 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
     return '$prefix-${counter.toString().padLeft(6, '0')}';
   }
 
+  double get _totalPaid => _paymentEntries.fold(0, (sum, e) {
+    final amt = double.tryParse(e.controller.text) ?? 0;
+    return sum + amt;
+  });
+
+  String get _primaryPaymentMode {
+    if (_paymentEntries.isEmpty) return 'cash';
+    final validEntries = _paymentEntries.where((e) {
+      final amt = double.tryParse(e.controller.text) ?? 0;
+      return amt > 0;
+    }).toList();
+    if (validEntries.isEmpty) return 'cash';
+    if (validEntries.length == 1) return validEntries.first.mode;
+    return 'multiple';
+  }
+
   Future<void> _saveSale() async {
     final validItems =
         _lineItems.where((item) => item.productId != null && item.quantity > 0).toList();
@@ -168,13 +193,14 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
       return;
     }
 
+    final paidAmount = _totalPaid;
+
     setState(() => _isLoading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) throw Exception('Not authenticated');
 
       final businessId = await BusinessHelper.getOrCreateBusinessId();
-      final paidAmount = double.tryParse(_paidAmountController.text) ?? 0;
 
       // Handle walk-in: create or use a Walk-in customer
       String customerId;
@@ -224,7 +250,7 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
         'total_amount': _grandTotal,
         'paid_amount': paidAmount,
         'balance_amount': _grandTotal - paidAmount,
-        'payment_mode': _paymentMode,
+        'payment_mode': _primaryPaymentMode,
         'status': status,
         'notes': _notesController.text.isEmpty ? null : _notesController.text,
       };
@@ -252,33 +278,35 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
         await Supabase.instance.client.from('sale_items').insert(itemData);
       }
 
-      // Create payment record if paid amount > 0
-      if (paidAmount > 0) {
+      // Process each payment entry
+      for (final entry in _paymentEntries) {
+        final amt = double.tryParse(entry.controller.text) ?? 0;
+        if (amt <= 0) continue;
+
+        final mode = entry.mode;
+
+        // Create payment record
         await Supabase.instance.client.from('payments').insert({
           'business_id': businessId,
           'customer_id': customerId,
           'sale_id': saleId,
-          'amount': paidAmount,
-          'payment_mode': _paymentMode == 'credit' ? 'cash' : _paymentMode,
+          'amount': amt,
+          'payment_mode': mode,
           'payment_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
         });
-      }
 
-      // Update balances based on payment mode
-      if (paidAmount > 0) {
-        if (_paymentMode == 'cash') {
-          // Cash → cash_transactions
+        // Create financial transactions based on mode
+        if (mode == 'cash') {
           await Supabase.instance.client.from('cash_transactions').insert({
             'business_id': businessId,
             'transaction_type': 'in',
-            'amount': paidAmount,
+            'amount': amt,
             'reference_type': 'sale',
             'reference_id': saleId,
             'description': 'Sale ${_generateInvoiceNumber()}',
             'transaction_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
           });
-        } else if (_paymentMode == 'upi' || _paymentMode == 'bank_transfer') {
-          // UPI/Bank → update bank_accounts balance
+        } else if (mode == 'upi' || mode == 'bank_transfer') {
           final bankAccounts = await Supabase.instance.client
               .from('bank_accounts')
               .select('id')
@@ -287,7 +315,6 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
               .limit(1);
           if (bankAccounts.isNotEmpty) {
             final accId = bankAccounts[0]['id'] as String;
-            // Get current balance and update
             final acc = await Supabase.instance.client
                 .from('bank_accounts')
                 .select('balance')
@@ -296,18 +323,17 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
             final currentBal = (acc['balance'] as num?)?.toDouble() ?? 0;
             await Supabase.instance.client
                 .from('bank_accounts')
-                .update({'balance': currentBal + paidAmount})
+                .update({'balance': currentBal + amt})
                 .eq('id', accId);
 
-            // Also log in bank_transactions
             await Supabase.instance.client.from('bank_transactions').insert({
               'business_id': businessId,
               'bank_account_id': accId,
               'transaction_type': 'in',
-              'amount': paidAmount,
+              'amount': amt,
               'reference_type': 'sale',
               'reference_id': saleId,
-              'description': 'Sale ${_generateInvoiceNumber()} (${_paymentMode.toUpperCase()})',
+              'description': 'Sale ${_generateInvoiceNumber()} (${mode.toUpperCase()})',
               'transaction_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
             });
           }
@@ -489,7 +515,9 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
   void dispose() {
     _searchProductController.dispose();
     _notesController.dispose();
-    _paidAmountController.dispose();
+    for (final entry in _paymentEntries) {
+      entry.controller.dispose();
+    }
     super.dispose();
   }
 
@@ -965,6 +993,9 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
   }
 
   Widget _buildPaymentSection(ColorScheme cs) {
+    final totalPaid = _totalPaid;
+    final balance = _grandTotal - totalPaid;
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -979,51 +1010,113 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w600,
                         )),
-              ],
-            ),
-            const SizedBox(height: 12),
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'cash', label: Text('Cash'), icon: Icon(Icons.money, size: 18)),
-                ButtonSegment(value: 'upi', label: Text('UPI'), icon: Icon(Icons.qr_code, size: 18)),
-                ButtonSegment(value: 'bank_transfer', label: Text('Bank'), icon: Icon(Icons.account_balance, size: 18)),
-                ButtonSegment(value: 'credit', label: Text('Credit'), icon: Icon(Icons.credit_card, size: 18)),
-              ],
-              selected: {_paymentMode},
-              onSelectionChanged: (sel) => setState(() => _paymentMode = sel.first),
-            ),
-            const SizedBox(height: 12),
-            if (_paymentMode != 'credit')
-              TextField(
-                controller: _paidAmountController,
-                keyboardType: TextInputType.number,
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))
-                ],
-                decoration: InputDecoration(
-                  labelText: 'Amount Paid',
-                  prefixText: '₹ ',
-                  border: const OutlineInputBorder(),
-                  suffixText: 'of ₹ ${_grandTotal.toStringAsFixed(2)}',
+                const Spacer(),
+                Text(
+                  'Paid: ₹ ${totalPaid.toStringAsFixed(2)}',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: totalPaid >= _grandTotal ? Colors.green : cs.primary,
+                  ),
                 ),
-                onChanged: (_) => setState(() {}),
-              )
-            else
+              ],
+            ),
+            const SizedBox(height: 12),
+            ...List.generate(_paymentEntries.length, (index) =>
+                _buildPaymentEntry(index, cs)),
+            const SizedBox(height: 8),
+            if (balance > 0)
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: () {
+                    setState(() {
+                      _paymentEntries.add(_PaymentEntry());
+                    });
+                  },
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add Payment Method'),
+                ),
+              ),
+            if (balance <= 0 && totalPaid > 0)
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: Colors.orange.withOpacity(0.1),
+                  color: Colors.green.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.orange.withOpacity(0.3)),
                 ),
                 child: Text(
-                  'Full amount of ₹ ${_grandTotal.toStringAsFixed(2)} will be added to customer balance',
-                  style: const TextStyle(color: Colors.orange),
+                  'Fully paid',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.green.shade700,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _buildPaymentEntry(int index, ColorScheme cs) {
+    final entry = _paymentEntries[index];
+    final remaining = _grandTotal - _totalPaid + (double.tryParse(entry.controller.text) ?? 0);
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: cs.surfaceContainerHighest.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: cs.outline.withOpacity(0.2)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: 'cash', label: Text('Cash'), icon: Icon(Icons.money, size: 16)),
+                    ButtonSegment(value: 'upi', label: Text('UPI'), icon: Icon(Icons.qr_code, size: 16)),
+                    ButtonSegment(value: 'bank_transfer', label: Text('Bank'), icon: Icon(Icons.account_balance, size: 16)),
+                  ],
+                  selected: {entry.mode},
+                  onSelectionChanged: (sel) {
+                    setState(() => entry.mode = sel.first);
+                  },
+                ),
+              ),
+              if (_paymentEntries.length > 1)
+                IconButton(
+                  icon: Icon(Icons.delete_outline, color: cs.error, size: 20),
+                  onPressed: () {
+                    setState(() {
+                      entry.controller.dispose();
+                      _paymentEntries.removeAt(index);
+                    });
+                  },
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: entry.controller,
+            keyboardType: TextInputType.number,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))
+            ],
+            decoration: InputDecoration(
+              labelText: 'Amount',
+              prefixText: '₹ ',
+              border: const OutlineInputBorder(),
+              suffixText: 'of ₹ ${_grandTotal.toStringAsFixed(2)}',
+            ),
+            onChanged: (_) => setState(() {}),
+          ),
+        ],
       ),
     );
   }
@@ -1044,7 +1137,7 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
   }
 
   Widget _buildSaveButton(ColorScheme cs) {
-    final paidAmount = double.tryParse(_paidAmountController.text) ?? 0;
+    final paidAmount = _totalPaid;
     final balance = _grandTotal - paidAmount;
 
     return Column(
