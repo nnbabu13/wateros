@@ -1,3 +1,4 @@
+import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class WhatsAppHelper {
@@ -22,63 +23,98 @@ class WhatsAppHelper {
     }
   }
 
-  static String buildPaymentReminder({
+  /// Generates a mobile-friendly payment reminder message for WhatsApp.
+  ///
+  /// [currentSale] - the current sale map with keys: invoice_date, items (list)
+  /// [customerName] - customer name
+  /// [total] - total amount of current sale
+  /// [paid] - paid amount of current sale
+  /// [balance] - balance amount of current sale
+  /// [customerTotalBalance] - total outstanding balance across all sales
+  /// [previousSales] - list of previous unpaid sales, each with 'items' key
+  static String generatePaymentReminderMessage({
     required String customerName,
-    required double amount,
     required String invoiceDate,
-    required String businessName,
-    String? customMessage,
+    required double total,
+    required double paid,
+    required double balance,
+    required double customerTotalBalance,
+    required List<Map<String, dynamic>> items,
+    required List<Map<String, dynamic>> previousSales,
   }) {
-    if (customMessage != null && customMessage.isNotEmpty) {
-      return customMessage
-          .replaceAll('{{CustomerName}}', customerName)
-          .replaceAll('{{Amount}}', amount.toStringAsFixed(2))
-          .replaceAll('{{InvoiceDate}}', invoiceDate)
-          .replaceAll('{{BusinessName}}', businessName);
+    final buffer = StringBuffer();
+    final rupee = String.fromCharCode(8377);
+    final dateStr = DateFormat('dd MMM yyyy').format(DateTime.parse(invoiceDate));
+
+    buffer.writeln('*Payment Reminder*');
+    buffer.writeln('');
+    buffer.writeln('📅 $dateStr');
+    buffer.writeln('👤 $customerName');
+
+    // Current order items
+    if (items.isNotEmpty) {
+      buffer.writeln('');
+      buffer.writeln('*Order Details*');
+      buffer.writeln('');
+
+      for (final item in items) {
+        final name = item['product_name'] as String? ?? '';
+        final qty = (item['quantity'] as num?)?.toDouble() ?? 0;
+        final rate = (item['unit_price'] as num?)?.toDouble() ?? 0;
+        final amt = (item['total_amount'] as num?)?.toDouble() ?? 0;
+        buffer.writeln('• $name');
+        buffer.writeln('  ${qty.toStringAsFixed(0)} × $rupee${rate.toStringAsFixed(0)} = *$rupee${amt.toStringAsFixed(0)}*');
+      }
     }
 
-    return '''Dear $customerName,
+    // Current order totals
+    buffer.writeln('');
+    buffer.writeln('*Total Amount:* $rupee${total.toStringAsFixed(0)}');
+    buffer.writeln('*Paid:* $rupee${paid.toStringAsFixed(0)}');
 
-This is a friendly reminder that payment of ₹${amount.toStringAsFixed(2)} dated $invoiceDate is pending.
+    if (balance > 0) {
+      buffer.writeln('');
+      buffer.writeln('🔴 *Balance Due: $rupee${balance.toStringAsFixed(0)}*');
+    }
 
-Kindly make payment at your earliest convenience.
+    // Previous unpaid orders
+    if (previousSales.isNotEmpty) {
+      buffer.writeln('');
+      buffer.writeln('*Pending Orders*');
+      buffer.writeln('');
 
-Thank you.
+      for (final prev in previousSales) {
+        final prevDateStr = prev['invoice_date'] as String? ?? '';
+        final prevDate = DateTime.tryParse(prevDateStr);
+        final prevFormattedDate = prevDate != null ? DateFormat('dd MMM yyyy').format(prevDate) : prevDateStr;
+        final prevItems = prev['items'] as List<dynamic>? ?? [];
+        final prevTotal = (prev['total_amount'] as num?)?.toDouble() ?? 0;
+        final prevBalance = (prev['balance_amount'] as num?)?.toDouble() ?? 0;
 
-$businessName''';
-  }
+        buffer.writeln('📅 $prevFormattedDate');
 
-  static String buildSecondReminder({
-    required String customerName,
-    required double amount,
-    required String invoiceDate,
-    required String businessName,
-  }) {
-    return '''Dear $customerName,
+        if (prevItems.length == 1) {
+          final item = prevItems[0];
+          final name = item['product_name'] as String? ?? '';
+          final amt = (item['total_amount'] as num?)?.toDouble() ?? 0;
+          buffer.writeln('• $name — *$rupee${amt.toStringAsFixed(0)}*');
+        } else {
+          for (final item in prevItems) {
+            final name = item['product_name'] as String? ?? '';
+            final qty = (item['quantity'] as num?)?.toDouble() ?? 0;
+            final rate = (item['unit_price'] as num?)?.toDouble() ?? 0;
+            final amt = (item['total_amount'] as num?)?.toDouble() ?? 0;
+            buffer.writeln('• $name');
+            buffer.writeln('  ${qty.toStringAsFixed(0)} × $rupee${rate.toStringAsFixed(0)} = *$rupee${amt.toStringAsFixed(0)}*');
+          }
+          buffer.writeln('*Order Total: $rupee${prevTotal.toStringAsFixed(0)}*');
+        }
+        buffer.writeln('');
+      }
 
-This is a second reminder that payment of ₹${amount.toStringAsFixed(2)} dated $invoiceDate is overdue.
+      buffer.writeln('🔴 *Total Due: $rupee${customerTotalBalance.toStringAsFixed(0)}*');
+    }
 
-Please make the payment immediately to avoid any inconvenience.
-
-Thank you.
-
-$businessName''';
-  }
-
-  static String buildFinalReminder({
-    required String customerName,
-    required double amount,
-    required String invoiceDate,
-    required String businessName,
-  }) {
-    return '''Dear $customerName,
-
-This is a FINAL reminder that payment of ₹${amount.toStringAsFixed(2)} dated $invoiceDate is severely overdue.
-
-Please clear the outstanding amount immediately to avoid further action.
-
-Thank you.
-
-$businessName''';
+    return buffer.toString();
   }
 }

@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/utils/business_helper.dart';
 import '../../../../core/utils/cash_transaction_helper.dart';
+import '../../../../core/utils/whatsapp_helper.dart';
 
 class DailySalesScreen extends StatefulWidget {
   const DailySalesScreen({super.key});
@@ -380,7 +381,6 @@ class _DailySalesScreenState extends State<DailySalesScreen> {
     double balance,
     double customerBalance,
   ) async {
-    final dateStr = DateFormat('dd MMM yyyy').format(_selectedDate);
     final customerId = sale['customers']?['id'] as String?;
 
     // Fetch previous unpaid sales for this customer (before today)
@@ -414,103 +414,16 @@ class _DailySalesScreenState extends State<DailySalesScreen> {
       }
     }
 
-    final buffer = StringBuffer();
-    final rupee = String.fromCharCode(8377);
-
-    // Header
-    buffer.writeln('Date: $dateStr');
-    buffer.writeln('Customer: $customerName');
-    buffer.writeln('');
-
-    // Items table header
-    buffer.writeln('Item            Qty   Rate    Amount');
-    buffer.writeln('- * - * - * - * - * - * - * - * - * -');
-
-    // Items
-    for (final item in items) {
-      final name = item['product_name'] as String? ?? '';
-      final qty = (item['quantity'] as num?)?.toInt() ?? 0;
-      final rate = (item['unit_price'] as num?)?.toDouble() ?? 0;
-      final amt = (item['total_amount'] as num?)?.toDouble() ?? 0;
-      // Pad name to 14 chars, qty to 5 chars, rate to 6 chars
-      final namePad = name.length > 14 ? name.substring(0, 14) : name.padRight(14);
-      final qtyPad = qty.toString().padLeft(5);
-      final ratePad = '$rupee${rate.toStringAsFixed(0)}'.padLeft(6);
-      final amtStr = '$rupee${amt.toStringAsFixed(0)}';
-      buffer.writeln('$namePad $qtyPad   $ratePad    $amtStr');
-    }
-
-    buffer.writeln('- * - * - * - * - * - * - * - * - * -');
-
-    // Totals
-    final totalStr = '$rupee${total.toStringAsFixed(0)}';
-    buffer.writeln('Total${''.padRight(19)}$totalStr');
-
-    if (paid > 0) {
-      final paidStr = '$rupee${paid.toStringAsFixed(0)}';
-      buffer.writeln('Received${''.padRight(16)}$paidStr');
-    }
-
-    if (balance > 0) {
-      final balanceStr = '$rupee${balance.toStringAsFixed(0)}';
-      buffer.writeln('*Balance Due${''.padRight(12)}$balanceStr*');
-    }
-
-    // Previous unpaid sales
-    if (previousSales.isNotEmpty) {
-      buffer.writeln('');
-      buffer.writeln('~ * ~ * ~ * ~ * ~ * ~ * ~ * ~ * ~ * ~');
-
-      double totalPrevBalance = 0;
-
-      for (final prev in previousSales) {
-        final prevDateStr = prev['invoice_date'] as String? ?? '';
-        final prevDate = DateTime.tryParse(prevDateStr);
-        final prevFormattedDate = prevDate != null ? DateFormat('dd MMM').format(prevDate) : prevDateStr;
-        final prevPaid = (prev['paid_amount'] as num?)?.toDouble() ?? 0;
-        final prevBalance = (prev['balance_amount'] as num?)?.toDouble() ?? 0;
-        final prevItems = prev['items'] as List<dynamic>? ?? [];
-        totalPrevBalance += prevBalance;
-
-        buffer.writeln('');
-        buffer.writeln('*$prevFormattedDate*');
-
-        // Items header
-        buffer.writeln('Item            Qty   Rate    Amount');
-        buffer.writeln('- * - * - * - * - * - * - * - * - * -');
-
-        for (final item in prevItems) {
-          final name = item['product_name'] as String? ?? '';
-          final qty = (item['quantity'] as num?)?.toInt() ?? 0;
-          final rate = (item['unit_price'] as num?)?.toDouble() ?? 0;
-          final amt = (item['total_amount'] as num?)?.toDouble() ?? 0;
-          final namePad = name.length > 14 ? name.substring(0, 14) : name.padRight(14);
-          final qtyPad = qty.toString().padLeft(5);
-          final ratePad = '$rupee${rate.toStringAsFixed(0)}'.padLeft(6);
-          final amtStr = '$rupee${amt.toStringAsFixed(0)}';
-          buffer.writeln('$namePad $qtyPad   $ratePad    $amtStr');
-        }
-
-        buffer.writeln('- * - * - * - * - * - * - * - * - * -');
-        if (prevPaid > 0) {
-          buffer.writeln('Received${''.padRight(16)}$rupee${prevPaid.toStringAsFixed(0)}');
-        }
-        buffer.writeln('*Due${''.padRight(20)}$rupee${prevBalance.toStringAsFixed(0)}*');
-      }
-
-      buffer.writeln('');
-      buffer.writeln('~ * ~ * ~ * ~ * ~ * ~ * ~ * ~ * ~ * ~');
-      buffer.writeln('Previous Balance${''.padRight(8)}$rupee${totalPrevBalance.toStringAsFixed(0)}');
-    }
-
-    // Total balance (previous + today)
-    final totalBalance = customerBalance;
-    if (totalBalance > 0) {
-      buffer.writeln('');
-      buffer.writeln('*TOTAL DUE${''.padRight(15)}$rupee${totalBalance.toStringAsFixed(0)}*');
-    }
-
-    final message = buffer.toString();
+    final message = WhatsAppHelper.generatePaymentReminderMessage(
+      customerName: customerName,
+      invoiceDate: DateFormat('yyyy-MM-dd').format(_selectedDate),
+      total: total,
+      paid: paid,
+      balance: balance,
+      customerTotalBalance: customerBalance,
+      items: items.cast<Map<String, dynamic>>(),
+      previousSales: previousSales,
+    );
     final phoneNumber = (whatsappPhone != null && whatsappPhone.isNotEmpty)
         ? whatsappPhone.replaceAll(RegExp(r'[^0-9]'), '')
         : phone.replaceAll(RegExp(r'[^0-9]'), '');
