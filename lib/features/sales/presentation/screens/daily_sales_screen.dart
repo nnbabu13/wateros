@@ -564,7 +564,8 @@ class _DailySalesScreenState extends State<DailySalesScreen> {
         if (productId != null && quantity > 0) {
           try {
             final product = await client.from('products').select('product_type, current_stock').eq('id', productId).single();
-            if (product['product_type'] as String? == 'finished_product') {
+            final productType = product['product_type'] as String? ?? '';
+            if (productType == 'finished_product') {
               final currentStock = (product['current_stock'] as num?)?.toDouble() ?? 0;
               await client.from('products').update({'current_stock': currentStock + quantity}).eq('id', productId);
             }
