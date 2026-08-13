@@ -5,7 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/utils/business_helper.dart';
 
 class SalesScreen extends StatefulWidget {
-  const SalesScreen({super.key});
+  final int initialTab;
+  const SalesScreen({super.key, this.initialTab = 0});
 
   @override
   State<SalesScreen> createState() => _SalesScreenState();
@@ -21,7 +22,7 @@ class _SalesScreenState extends State<SalesScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 4, vsync: this);
+    _tabController = TabController(length: 4, vsync: this, initialIndex: widget.initialTab);
     _loadSales();
   }
 

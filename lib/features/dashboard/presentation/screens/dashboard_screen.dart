@@ -446,7 +446,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           value: _formatCurrency(_pendingPayments),
           icon: Icons.pending_actions,
           color: Colors.orange,
-          onTap: () => context.push('/payments'),
+          onTap: () => context.push('/sales', extra: 2),
         ),
         StatCard(
           title: 'Today\'s Expenses',
@@ -518,7 +518,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             Expanded(
               child: AppCard(
                 margin: EdgeInsets.zero,
-                onTap: () => context.push('/customers'),
+                onTap: () => context.push('/sales', extra: 2),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

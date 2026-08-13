@@ -98,7 +98,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           ),
           GoRoute(
             path: '/sales',
-            builder: (context, state) => const SalesScreen(),
+            builder: (context, state) => SalesScreen(
+              initialTab: state.extra as int? ?? 0,
+            ),
             routes: [
               GoRoute(
                 path: 'create',
