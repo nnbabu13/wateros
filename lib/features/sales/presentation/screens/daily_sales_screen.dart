@@ -282,6 +282,7 @@ class _DailySalesScreenState extends State<DailySalesScreen> {
     final balance = (sale['balance_amount'] as num? ?? 0).toDouble();
     final customerBalance = (customer?['current_balance'] as num? ?? 0).toDouble();
     final items = sale['items'] as List<dynamic>? ?? [];
+    final saleId = sale['id'] as String;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 10),
@@ -296,6 +297,21 @@ class _DailySalesScreenState extends State<DailySalesScreen> {
                   child: Text(customerName, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
                 ),
                 _statusBadge(status, statusColor),
+                PopupMenuButton(
+                  padding: EdgeInsets.zero,
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(value: 'edit', child: Text('Edit Sale')),
+                    const PopupMenuItem(value: 'delete', child: Text('Delete Sale', style: TextStyle(color: Colors.red))),
+                  ],
+                  onSelected: (v) async {
+                    if (v == 'edit') {
+                      final result = await context.push<bool>('/sales/$saleId/edit');
+                      if (result == true) _loadData();
+                    } else if (v == 'delete') {
+                      _deleteSale(sale);
+                    }
+                  },
+                ),
               ],
             ),
             Text(sale['invoice_number'] ?? '', style: TextStyle(fontSize: 11, color: Theme.of(context).textTheme.bodySmall?.color)),
@@ -515,6 +531,98 @@ class _DailySalesScreenState extends State<DailySalesScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Could not open WhatsApp'), backgroundColor: Colors.red),
         );
+      }
+    }
+  }
+
+  Future<void> _deleteSale(Map<String, dynamic> sale) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Sale'),
+        content: Text('Delete invoice ${sale['invoice_number'] ?? ''}? This will reverse all related transactions and restore inventory.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Delete', style: TextStyle(color: Colors.red))),
+        ],
+      ),
+    );
+    if (confirm != true || !mounted) return;
+
+    final client = Supabase.instance.client;
+    final saleId = sale['id'] as String;
+    final customerId = sale['customers']?['id'] as String?;
+    final paidAmount = (sale['paid_amount'] as num?)?.toDouble() ?? 0;
+    final paymentMode = sale['payment_mode'] as String? ?? '';
+
+    try {
+      // 1. Restore inventory for each sale item
+      final saleItems = await client.from('sale_items').select('product_id, quantity').eq('sale_id', saleId);
+      for (final item in saleItems) {
+        final productId = item['product_id'] as String?;
+        final quantity = (item['quantity'] as num?)?.toDouble() ?? 0;
+        if (productId != null && quantity > 0) {
+          try {
+            final product = await client.from('products').select('product_type, current_stock').eq('id', productId).single();
+            if (product['product_type'] as String? == 'finished_product') {
+              final currentStock = (product['current_stock'] as num?)?.toDouble() ?? 0;
+              await client.from('products').update({'current_stock': currentStock + quantity}).eq('id', productId);
+            }
+          } catch (_) {}
+        }
+      }
+
+      // 2. Delete inventory movements
+      await client.from('inventory_movements').delete().eq('reference_type', 'sale').eq('reference_id', saleId);
+
+      // 3. Delete payments
+      await client.from('payments').delete().eq('sale_id', saleId);
+
+      // 4. Delete cash transactions
+      await client.from('cash_transactions').delete().eq('reference_type', 'sale').eq('reference_id', saleId);
+
+      // 5. Reverse bank account balance and delete bank transactions
+      final bankTxns = await client.from('bank_transactions').select('bank_account_id, amount').eq('reference_type', 'sale').eq('reference_id', saleId);
+      for (final txn in bankTxns) {
+        final accId = txn['bank_account_id'] as String?;
+        final amt = (txn['amount'] as num?)?.toDouble() ?? 0;
+        if (accId != null && amt > 0) {
+          try {
+            final acc = await client.from('bank_accounts').select('balance').eq('id', accId).single();
+            final currentBal = (acc['balance'] as num?)?.toDouble() ?? 0;
+            await client.from('bank_accounts').update({'balance': currentBal - amt}).eq('id', accId);
+          } catch (_) {}
+        }
+      }
+      await client.from('bank_transactions').delete().eq('reference_type', 'sale').eq('reference_id', saleId);
+
+      // 6. Delete sale items
+      await client.from('sale_items').delete().eq('sale_id', saleId);
+
+      // 7. Delete the sale
+      await client.from('sales').delete().eq('id', saleId);
+
+      // 8. Recalculate customer balance
+      if (customerId != null) {
+        try {
+          final remainingSales = await client.from('sales').select('balance_amount').eq('customer_id', customerId);
+          double totalDue = 0;
+          for (final s in remainingSales) {
+            totalDue += (s['balance_amount'] as num?)?.toDouble() ?? 0;
+          }
+          await client.from('customers').update({'current_balance': totalDue}).eq('id', customerId);
+        } catch (_) {}
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Sale deleted and transactions reversed'), backgroundColor: Colors.green),
+        );
+        _loadData();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e'), backgroundColor: Colors.red));
       }
     }
   }
