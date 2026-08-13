@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../dashboard/presentation/providers/dashboard_provider.dart';
@@ -66,10 +67,18 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
         actions: [
           PopupMenuButton(
             itemBuilder: (_) => [
+              const PopupMenuItem(value: 'edit', child: Text('Edit Sale')),
               const PopupMenuItem(value: 'delete', child: Text('Delete Sale', style: TextStyle(color: Colors.red))),
             ],
-            onSelected: (v) {
-              if (v == 'delete') _deleteSale();
+            onSelected: (v) async {
+              if (v == 'edit') {
+                final result = await context.push<bool>('/sales/${widget.saleId}/edit');
+                if (result == true && mounted) {
+                  _loadSale();
+                }
+              } else if (v == 'delete') {
+                _deleteSale();
+              }
             },
           ),
         ],

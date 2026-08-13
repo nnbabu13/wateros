@@ -10,6 +10,7 @@ import '../../features/customers/presentation/screens/add_customer_screen.dart';
 import '../../features/sales/presentation/screens/sales_screen.dart';
 import '../../features/sales/presentation/screens/create_sale_screen.dart';
 import '../../features/sales/presentation/screens/sale_detail_screen.dart';
+import '../../features/sales/presentation/screens/edit_sale_screen.dart';
 import '../../features/payments/presentation/screens/payments_screen.dart';
 import '../../features/payments/presentation/screens/record_payment_screen.dart';
 import '../../features/suppliers/presentation/screens/suppliers_screen.dart';
@@ -108,6 +109,14 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 builder: (context, state) => SaleDetailScreen(
                   saleId: state.pathParameters['id']!,
                 ),
+                routes: [
+                  GoRoute(
+                    path: 'edit',
+                    builder: (context, state) => EditSaleScreen(
+                      saleId: state.pathParameters['id']!,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
