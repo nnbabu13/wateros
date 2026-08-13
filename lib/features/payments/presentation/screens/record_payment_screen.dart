@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/utils/business_helper.dart';
+import '../../../../core/utils/cash_transaction_helper.dart';
 
 class RecordPaymentScreen extends StatefulWidget {
   const RecordPaymentScreen({super.key});
@@ -79,16 +80,34 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
       final bizId = await BusinessHelper.getOrCreateBusinessId();
       final amount = double.parse(_amountController.text);
 
-      await Supabase.instance.client.from('payments').insert({
-        'business_id': bizId,
-        'customer_id': _selectedCustomerId,
-        'sale_id': _selectedSaleId,
-        'amount': amount,
-        'payment_mode': _paymentMode,
-        'payment_date': DateFormat('yyyy-MM-dd').format(_paymentDate),
-        'reference_number': _refController.text.isEmpty ? null : _refController.text.trim(),
-        'notes': _notesController.text.isEmpty ? null : _notesController.text.trim(),
-      });
+      // Create payment record and capture its ID
+      final paymentResponse = await Supabase.instance.client
+          .from('payments')
+          .insert({
+            'business_id': bizId,
+            'customer_id': _selectedCustomerId,
+            'sale_id': _selectedSaleId,
+            'amount': amount,
+            'payment_mode': _paymentMode,
+            'payment_date': DateFormat('yyyy-MM-dd').format(_paymentDate),
+            'reference_number': _refController.text.isEmpty ? null : _refController.text.trim(),
+            'notes': _notesController.text.isEmpty ? null : _notesController.text.trim(),
+          })
+          .select()
+          .single();
+      final paymentId = paymentResponse['id'] as String;
+
+      // Create cash transaction if payment mode is cash
+      if (_paymentMode == 'cash') {
+        await CashTransactionHelper.recordCashIn(
+          businessId: bizId,
+          amount: amount,
+          referenceType: 'customer_payment',
+          referenceId: paymentId,
+          description: 'Payment from customer',
+          transactionDate: _paymentDate,
+        );
+      }
 
       // Update sale paid_amount and balance_amount
       if (_selectedSaleId != null) {

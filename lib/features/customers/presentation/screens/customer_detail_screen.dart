@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../../core/utils/cash_transaction_helper.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 class CustomerDetailScreen extends StatefulWidget {
@@ -631,20 +632,34 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
             .eq('id', widget.customerId)
             .single();
 
-        await Supabase.instance.client.from('payments').insert({
-          'business_id': bizId['business_id'],
-          'customer_id': widget.customerId,
-          'amount': result['amount'],
-          'payment_mode': result['mode'],
-        });
+        // Create payment record and capture its ID
+        final paymentResponse = await Supabase.instance.client
+            .from('payments')
+            .insert({
+              'business_id': bizId['business_id'],
+              'customer_id': widget.customerId,
+              'amount': result['amount'],
+              'payment_mode': result['mode'],
+            })
+            .select()
+            .single();
+        final paymentId = paymentResponse['id'] as String;
 
-        // Update customer balance
-        final currentBalance = (_customer?['current_balance'] as num?)?.toDouble() ?? 0;
-        final newBalance = currentBalance - (result['amount'] as double);
-        await Supabase.instance.client
-            .from('customers')
-            .update({'current_balance': newBalance})
-            .eq('id', widget.customerId);
+        // Create cash transaction if payment mode is cash
+        if (result['mode'] == 'cash') {
+          await CashTransactionHelper.recordCashIn(
+            businessId: bizId['business_id'],
+            amount: result['amount'] as double,
+            referenceType: 'customer_payment',
+            referenceId: paymentId,
+            description: 'Payment from ${_customer?['name'] ?? 'customer'}',
+            transactionDate: DateTime.now(),
+          );
+        }
+
+        // Note: customer balance is updated by the database trigger
+        // (trigger_update_customer_balance). Do NOT update it here to
+        // avoid double-subtraction.
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(

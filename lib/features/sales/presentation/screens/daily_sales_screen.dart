@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/utils/business_helper.dart';
+import '../../../../core/utils/cash_transaction_helper.dart';
 
 class DailySalesScreen extends StatefulWidget {
   const DailySalesScreen({super.key});
@@ -579,7 +580,8 @@ class _DailySalesScreenState extends State<DailySalesScreen> {
       // 3. Delete payments
       await client.from('payments').delete().eq('sale_id', saleId);
 
-      // 4. Delete cash transactions
+      // 4. Delete cash transactions (both new payment.id and legacy sale.id references)
+      await CashTransactionHelper.deleteAllForSale(saleId);
       await client.from('cash_transactions').delete().eq('reference_type', 'sale').eq('reference_id', saleId);
 
       // 5. Reverse bank account balance and delete bank transactions

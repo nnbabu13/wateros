@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../dashboard/presentation/providers/dashboard_provider.dart';
+import '../../../../core/utils/cash_transaction_helper.dart';
 
 class SaleDetailScreen extends ConsumerStatefulWidget {
   final String saleId;
@@ -557,7 +558,8 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
       // 3. Delete payments for this sale
       await client.from('payments').delete().eq('sale_id', saleId);
 
-      // 4. Delete cash transactions for this sale
+      // 4. Delete cash transactions for this sale (both new payment.id and legacy sale.id references)
+      await CashTransactionHelper.deleteAllForSale(saleId);
       await client.from('cash_transactions')
           .delete()
           .eq('reference_type', 'sale')

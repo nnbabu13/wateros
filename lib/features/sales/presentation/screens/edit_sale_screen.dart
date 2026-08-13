@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/utils/business_helper.dart';
+import '../../../../core/utils/cash_transaction_helper.dart';
 import '../../../dashboard/presentation/providers/dashboard_provider.dart';
 
 class _EditSaleLineItem {
@@ -348,7 +349,9 @@ class _EditSaleScreenState extends ConsumerState<EditSaleScreen> {
       // 1c. Delete original payments
       await client.from('payments').delete().eq('sale_id', widget.saleId);
 
-      // 1d. Delete original cash transactions
+      // 1d. Delete original cash transactions (both legacy sale.id and new payment.id references)
+      await CashTransactionHelper.deleteAllForSale(widget.saleId);
+      // Also delete any legacy references where reference_id = sale.id
       await client.from('cash_transactions')
           .delete()
           .eq('reference_type', 'sale')
@@ -435,27 +438,31 @@ class _EditSaleScreenState extends ConsumerState<EditSaleScreen> {
 
         final mode = entry.mode;
 
-        // Create payment record
-        await client.from('payments').insert({
-          'business_id': businessId,
-          'customer_id': customerId,
-          'sale_id': widget.saleId,
-          'amount': amt,
-          'payment_mode': mode,
-          'payment_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
-        });
+        // Create payment record and capture its ID
+        final paymentResponse = await client
+            .from('payments')
+            .insert({
+              'business_id': businessId,
+              'customer_id': customerId,
+              'sale_id': widget.saleId,
+              'amount': amt,
+              'payment_mode': mode,
+              'payment_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
+            })
+            .select()
+            .single();
+        final paymentId = paymentResponse['id'] as String;
 
         // Create financial transactions based on mode
         if (mode == 'cash') {
-          await client.from('cash_transactions').insert({
-            'business_id': businessId,
-            'transaction_type': 'in',
-            'amount': amt,
-            'reference_type': 'sale',
-            'reference_id': widget.saleId,
-            'description': 'Sale ${_originalSale!['invoice_number'] ?? ''}',
-            'transaction_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
-          });
+          await CashTransactionHelper.recordCashIn(
+            businessId: businessId,
+            amount: amt,
+            referenceType: 'sale',
+            referenceId: paymentId,
+            description: 'Sale ${_originalSale!['invoice_number'] ?? ''}',
+            transactionDate: _invoiceDate,
+          );
         } else if (mode == 'upi' || mode == 'bank_transfer') {
           final bankAccounts = await client
               .from('bank_accounts')

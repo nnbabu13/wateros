@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/utils/business_helper.dart';
+import '../../../../core/utils/cash_transaction_helper.dart';
 
 class _SaleLineItem {
   String? productId;
@@ -285,27 +286,31 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
 
         final mode = entry.mode;
 
-        // Create payment record
-        await Supabase.instance.client.from('payments').insert({
-          'business_id': businessId,
-          'customer_id': customerId,
-          'sale_id': saleId,
-          'amount': amt,
-          'payment_mode': mode,
-          'payment_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
-        });
+        // Create payment record and capture its ID
+        final paymentResponse = await Supabase.instance.client
+            .from('payments')
+            .insert({
+              'business_id': businessId,
+              'customer_id': customerId,
+              'sale_id': saleId,
+              'amount': amt,
+              'payment_mode': mode,
+              'payment_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
+            })
+            .select()
+            .single();
+        final paymentId = paymentResponse['id'] as String;
 
         // Create financial transactions based on mode
         if (mode == 'cash') {
-          await Supabase.instance.client.from('cash_transactions').insert({
-            'business_id': businessId,
-            'transaction_type': 'in',
-            'amount': amt,
-            'reference_type': 'sale',
-            'reference_id': saleId,
-            'description': 'Sale ${_generateInvoiceNumber()}',
-            'transaction_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
-          });
+          await CashTransactionHelper.recordCashIn(
+            businessId: businessId,
+            amount: amt,
+            referenceType: 'sale',
+            referenceId: paymentId,
+            description: 'Sale ${_generateInvoiceNumber()}',
+            transactionDate: _invoiceDate,
+          );
         } else if (mode == 'upi' || mode == 'bank_transfer') {
           final bankAccounts = await Supabase.instance.client
               .from('bank_accounts')
