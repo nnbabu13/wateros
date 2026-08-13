@@ -247,6 +247,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             (cid != null) ? (customerNames[cid] ?? 'Customer') : 'Customer';
         recentActivity.add({
           'type': 'sale',
+          'id': sale['id'] as String,
           'title': 'Sale - ${sale['invoice_number'] ?? ''}',
           'subtitle': '$custName - ${String.fromCharCode(8377)}${sale['total_amount'] ?? 0}',
           'date': sale['invoice_date'] ?? '',
@@ -259,6 +260,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             (cid != null) ? (customerNames[cid] ?? 'Customer') : 'Customer';
         recentActivity.add({
           'type': 'payment',
+          'id': p['id'] as String,
           'title': 'Payment Received',
           'subtitle': '$custName - ${String.fromCharCode(8377)}${p['amount'] ?? 0}',
           'date': p['payment_date'] ?? '',
@@ -268,6 +270,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       for (final e in recentExpenses) {
         recentActivity.add({
           'type': 'expense',
+          'id': e['id'] as String,
           'title': 'Expense',
           'subtitle': '${e['description'] ?? ''} - ${String.fromCharCode(8377)}${e['amount'] ?? 0}',
           'date': e['expense_date'] ?? '',
@@ -434,36 +437,42 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           value: _formatCurrency(_todaySales),
           icon: Icons.trending_up,
           color: Colors.blue,
+          onTap: () => context.push('/daily-sales'),
         ),
         StatCard(
           title: 'Today\'s Collection',
           value: _formatCurrency(_todayCollection),
           icon: Icons.payments,
           color: Colors.green,
+          onTap: () => context.push('/payments'),
         ),
         StatCard(
           title: 'Pending Payments',
           value: _formatCurrency(_pendingPayments),
           icon: Icons.pending_actions,
           color: Colors.orange,
+          onTap: () => context.push('/payments'),
         ),
         StatCard(
           title: 'Today\'s Expenses',
           value: _formatCurrency(_todayExpenses),
           icon: Icons.receipt_long,
           color: Colors.red,
+          onTap: () => context.push('/expenses'),
         ),
         StatCard(
           title: 'Cash Balance',
           value: _formatCurrency(_cashBalance),
           icon: Icons.account_balance_wallet,
           color: Colors.teal,
+          onTap: () => context.push('/cashbook'),
         ),
         StatCard(
           title: 'Bank Balance',
           value: _formatCurrency(_bankBalance),
           icon: Icons.account_balance,
           color: Colors.indigo,
+          onTap: () => context.push('/bankbook'),
         ),
       ],
     );
@@ -485,6 +494,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             Expanded(
               child: AppCard(
                 margin: EdgeInsets.zero,
+                onTap: () => context.push('/reports'),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -513,6 +523,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             Expanded(
               child: AppCard(
                 margin: EdgeInsets.zero,
+                onTap: () => context.push('/customers'),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -538,6 +549,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         const SizedBox(height: 12),
         AppCard(
           margin: EdgeInsets.zero,
+          onTap: () => context.push('/suppliers'),
           child: Row(
             children: [
               const Icon(Icons.warning_amber, color: Colors.orange, size: 24),
@@ -728,6 +740,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   if (i > 0) const Divider(),
                   _buildStockAlertItem(
                     context,
+                    _lowStockProducts[i]['id'] as String,
                     _lowStockProducts[i]['name'] as String,
                     (_lowStockProducts[i]['current_stock'] as num).toDouble(),
                     (_lowStockProducts[i]['minimum_stock'] as num).toDouble(),
@@ -741,9 +754,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Widget _buildStockAlertItem(
-      BuildContext context, String name, double current, double minimum) {
+      BuildContext context, String productId, String name, double current, double minimum) {
     final needed = minimum - current;
-    return Row(
+    return GestureDetector(
+      onTap: () => context.push('/inventory/$productId'),
+      child: Row(
       children: [
         Container(
           padding: const EdgeInsets.all(8),
@@ -779,6 +794,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
         ),
       ],
+    ),
     );
   }
 
@@ -827,6 +843,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Widget _buildActivityItem(BuildContext context, Map<String, dynamic> activity) {
     final type = activity['type'] as String;
+    final id = activity['id'] as String? ?? '';
     final title = activity['title'] as String;
     final subtitle = activity['subtitle'] as String;
     final date = activity['date'] as String;
@@ -867,7 +884,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       }
     } catch (_) {}
 
-    return Row(
+    VoidCallback? onTap;
+    if (type == 'sale' && id.isNotEmpty) {
+      onTap = () => context.push('/sales/$id');
+    } else if (type == 'payment') {
+      onTap = () => context.push('/payments');
+    } else if (type == 'expense') {
+      onTap = () => context.push('/expenses');
+    }
+
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Row(
       children: [
         Container(
           padding: const EdgeInsets.all(8),
@@ -906,6 +935,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
         ),
       ],
+    ),
     );
   }
 }
