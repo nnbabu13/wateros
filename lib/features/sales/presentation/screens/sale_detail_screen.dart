@@ -45,7 +45,7 @@ class _SaleDetailScreenState extends ConsumerState<SaleDetailScreen> {
           .eq('sale_id', widget.saleId)
           .order('created_at');
 
-      final results = await Future.wait([saleFuture, itemsFuture, paymentsFuture]);
+      final results = await Future.wait<dynamic>([saleFuture, itemsFuture, paymentsFuture]);
 
       if (mounted) {
         setState(() {

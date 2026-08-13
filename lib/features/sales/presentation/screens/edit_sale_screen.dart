@@ -118,7 +118,7 @@ class _EditSaleScreenState extends ConsumerState<EditSaleScreen> {
           .eq('is_active', true)
           .order('name');
 
-      final results = await Future.wait([saleFuture, itemsFuture, paymentsFuture, customersFuture, productsFuture]);
+      final results = await Future.wait<dynamic>([saleFuture, itemsFuture, paymentsFuture, customersFuture, productsFuture]);
 
       final saleData = results[0] as Map<String, dynamic>;
       final itemsData = List<Map<String, dynamic>>.from(results[1] as List);
@@ -164,7 +164,7 @@ class _EditSaleScreenState extends ConsumerState<EditSaleScreen> {
         // Calculate discount percent from amount
         final discountPercent = unitPrice * quantity > 0
             ? (discountAmount / (unitPrice * quantity)) * 100
-            : 0;
+            : 0.0;
 
         return _EditSaleLineItem(
           id: item['id'] as String?,
