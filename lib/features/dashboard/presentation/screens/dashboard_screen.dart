@@ -82,11 +82,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             .select('amount')
             .eq('business_id', businessId)
             .eq('expense_date', todayStr)),
-        _safeQuery(() => _client
-            .from('customers')
-            .select('current_balance')
-            .eq('business_id', businessId)
-            .gt('current_balance', 0)),
+        _safeQuery(() => Future.value([])),
         _safeQuery(() => _client
             .from('suppliers')
             .select('current_balance')
@@ -148,9 +144,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       for (final e in results[3]) {
         todayExpenses += (e['amount'] as num?)?.toDouble() ?? 0.0;
       }
-      for (final c in results[4]) {
-        receivables += (c['current_balance'] as num?)?.toDouble() ?? 0.0;
-      }
+      receivables = pendingPayments;
       for (final s in results[5]) {
         payables += (s['current_balance'] as num?)?.toDouble() ?? 0.0;
       }
