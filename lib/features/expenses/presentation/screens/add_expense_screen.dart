@@ -136,24 +136,65 @@ class _AddExpenseScreenState extends State<AddExpenseScreen> {
     setState(() => _isLoading = true);
     try {
       final bizId = await BusinessHelper.getOrCreateBusinessId();
+      final amount = double.parse(_amountController.text);
+      final description = _descriptionController.text.trim().isEmpty
+          ? null
+          : _descriptionController.text.trim();
       final data = {
         'business_id': bizId,
         'category_id': _selectedCategoryId,
-        'amount': double.parse(_amountController.text),
-        'description': _descriptionController.text.trim().isEmpty
-            ? null
-            : _descriptionController.text.trim(),
+        'amount': amount,
+        'description': description,
         'expense_date': DateFormat('yyyy-MM-dd').format(_expenseDate),
         'payment_mode': _paymentMode,
       };
 
+      String expenseId;
       if (isEditing) {
+        expenseId = widget.expenseId!;
         await Supabase.instance.client
             .from('expenses')
             .update(data)
-            .eq('id', widget.expenseId!);
+            .eq('id', expenseId);
       } else {
-        await Supabase.instance.client.from('expenses').insert(data);
+        final result = await Supabase.instance.client
+            .from('expenses')
+            .insert(data)
+            .select('id')
+            .single();
+        expenseId = result['id'] as String;
+      }
+
+      // Sync cash_transactions for cash expenses
+      final client = Supabase.instance.client;
+      final cashTxnFilter = client
+          .from('cash_transactions')
+          .select('id')
+          .eq('reference_type', 'expense')
+          .eq('reference_id', expenseId);
+
+      if (_paymentMode == 'cash') {
+        final existing = await cashTxnFilter.maybeSingle();
+        final txnData = {
+          'business_id': bizId,
+          'transaction_type': 'out',
+          'amount': amount,
+          'reference_type': 'expense',
+          'reference_id': expenseId,
+          'description': description ?? 'Expense',
+          'transaction_date': DateFormat('yyyy-MM-dd').format(_expenseDate),
+        };
+        if (existing != null) {
+          await client.from('cash_transactions').update(txnData).eq('id', existing['id'] as String);
+        } else {
+          await client.from('cash_transactions').insert(txnData);
+        }
+      } else {
+        // Non-cash: remove any existing cash_transactions record
+        await client.from('cash_transactions')
+            .delete()
+            .eq('reference_type', 'expense')
+            .eq('reference_id', expenseId);
       }
 
       if (mounted) {

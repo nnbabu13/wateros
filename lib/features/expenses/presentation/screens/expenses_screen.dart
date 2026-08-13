@@ -212,7 +212,16 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
     );
     if (confirm != true || !mounted) return;
     try {
-      await Supabase.instance.client.from('expenses').delete().eq('id', expense['id']);
+      final expenseId = expense['id'] as String;
+      final client = Supabase.instance.client;
+
+      // Delete associated cash_transactions record
+      await client.from('cash_transactions')
+          .delete()
+          .eq('reference_type', 'expense')
+          .eq('reference_id', expenseId);
+
+      await client.from('expenses').delete().eq('id', expenseId);
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Expense deleted'), backgroundColor: Colors.green));
       _loadData();
     } catch (e) {

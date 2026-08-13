@@ -75,7 +75,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             .from('sales')
             .select('balance_amount')
             .eq('business_id', businessId)
-            .neq('status', 'paid')),
+            .neq('status', 'paid')
+            .neq('status', 'cancelled')),
         _safeQuery(() => _client
             .from('expenses')
             .select('amount')
