@@ -114,7 +114,7 @@ class _EditSaleScreenState extends ConsumerState<EditSaleScreen> {
 
       final productsFuture = Supabase.instance.client
           .from('products')
-          .select('id, name, sku, selling_price, purchase_price, gst_rate, current_stock, unit')
+          .select('id, name, sku, selling_price, purchase_price, gst_rate, current_stock, unit, product_type')
           .eq('business_id', businessId)
           .eq('is_active', true)
           .order('name');
@@ -185,7 +185,7 @@ class _EditSaleScreenState extends ConsumerState<EditSaleScreen> {
       if (mounted) {
         setState(() {
           _customers = customersData;
-          _allProducts = productsData;
+          _allProducts = productsData.where((p) => p['product_type'] == 'finished_product').toList();
           _filteredProducts = _allProducts;
           _isLoadingData = false;
         });

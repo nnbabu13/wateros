@@ -89,7 +89,7 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
 
       final productsFuture = Supabase.instance.client
           .from('products')
-          .select('id, name, sku, selling_price, purchase_price, gst_rate, current_stock, unit')
+          .select('id, name, sku, selling_price, purchase_price, gst_rate, current_stock, unit, product_type')
           .eq('business_id', businessId)
           .eq('is_active', true)
           .order('name');
@@ -97,9 +97,10 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
       final results = await Future.wait([customersFuture, productsFuture]);
 
       if (mounted) {
+        final allProducts = List<Map<String, dynamic>>.from(results[1]);
         setState(() {
           _customers = List<Map<String, dynamic>>.from(results[0]);
-          _allProducts = List<Map<String, dynamic>>.from(results[1]);
+          _allProducts = allProducts.where((p) => p['product_type'] == 'finished_product').toList();
           _filteredProducts = _allProducts;
           _isLoadingData = false;
         });

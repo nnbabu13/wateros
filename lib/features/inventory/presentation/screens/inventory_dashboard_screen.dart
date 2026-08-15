@@ -144,9 +144,17 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
                   const SizedBox(height: 16),
                   Row(
                     children: [
-                      _actionTile(Icons.calendar_month, 'Monthly Stock', '/inventory/monthly-stock'),
+                      _actionTile(Icons.add_box, 'Add Product', '/products/add'),
                       const SizedBox(width: 8),
+                      _actionTile(Icons.calendar_month, 'Monthly Stock', '/inventory/monthly-stock'),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
                       _actionTile(Icons.shopping_cart, 'Purchase Material', '/purchases/create'),
+                      const SizedBox(width: 8),
+                      _actionTile(Icons.receipt_long, 'Stock Ledger', '/inventory/stock-ledger'),
                     ],
                   ),
                   const SizedBox(height: 20),

@@ -59,16 +59,17 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           .order('name');
       final productsFuture = Supabase.instance.client
           .from('products')
-          .select('id, name, sku, purchase_price, selling_price, gst_rate, current_stock, unit')
+          .select('id, name, sku, purchase_price, selling_price, gst_rate, current_stock, unit, product_type')
           .eq('business_id', bizId)
           .eq('is_active', true)
           .order('name');
       final results = await Future.wait([suppliersFuture, productsFuture]);
 
       if (mounted) {
+        final allProducts = List<Map<String, dynamic>>.from(results[1]);
         setState(() {
           _suppliers = List<Map<String, dynamic>>.from(results[0]);
-          _allProducts = List<Map<String, dynamic>>.from(results[1]);
+          _allProducts = allProducts.where((p) => ['raw_material', 'packaging'].contains(p['product_type'])).toList();
         });
       }
 
