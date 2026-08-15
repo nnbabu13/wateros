@@ -640,7 +640,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Product Qty Avg / Day', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cs.onSurfaceVariant)),
+                Row(
+                  children: [
+                    Text('Product Qty Avg / Day', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cs.onSurfaceVariant)),
+                    const Spacer(),
+                    SizedBox(width: 80, child: Text('7D Avg', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant), textAlign: TextAlign.center)),
+                    SizedBox(width: 80, child: Text('Month Avg', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant), textAlign: TextAlign.center)),
+                  ],
+                ),
                 const SizedBox(height: 8),
                 for (int i = 0; i < _productAvg7d.length; i++) ...[
                   if (i > 0) const Divider(height: 1),
@@ -683,23 +690,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
                   ),
                 ],
-                const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 20),
-                  child: Row(
-                    children: [
-                      const Expanded(child: SizedBox()),
-                      SizedBox(
-                        width: 80,
-                        child: Text('7D Avg', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant), textAlign: TextAlign.center),
-                      ),
-                      SizedBox(
-                        width: 80,
-                        child: Text('Month Avg', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant), textAlign: TextAlign.center),
-                      ),
-                    ],
-                  ),
-                ),
               ],
             ),
           ),
