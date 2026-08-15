@@ -87,6 +87,13 @@ class _DailySalesScreenState extends State<DailySalesScreen> {
           IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh)),
         ],
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () async {
+          final result = await context.push<bool>('/sales/create');
+          if (result == true) _loadData();
+        },
+        child: const Icon(Icons.add),
+      ),
       body: Column(
         children: [
           _buildDateSelector(),
