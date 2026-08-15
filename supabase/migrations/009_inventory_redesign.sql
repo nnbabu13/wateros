@@ -1,5 +1,14 @@
 -- Inventory Redesign: Period-based stock tracking + remove production
 
+-- 0. Create updated_at trigger function if not exists
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
 -- 1. Create stock_entries table
 CREATE TABLE stock_entries (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
