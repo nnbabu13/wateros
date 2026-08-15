@@ -32,6 +32,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   List<Map<String, dynamic>> _recentActivity = [];
   double _avgDailySales7d = 0;
   double _avgDailySalesMonth = 0;
+  List<Map<String, dynamic>> _productAvg7d = [];
+  List<Map<String, dynamic>> _productAvgMonth = [];
 
   @override
   void initState() {
@@ -252,6 +254,41 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         }
       } catch (_) {}
 
+      final productAvg7dMap = <String, double>{};
+      try {
+        final weekStart = DateTime(now.year, now.month, now.day - 6);
+        final weekIds = (await _client.from('sales').select('id').eq('business_id', businessId).neq('status', 'cancelled').gte('invoice_date', weekStart.toIso8601String().substring(0, 10)).lte('invoice_date', todayStr)).map((s) => s['id'] as String).toList();
+        if (weekIds.isNotEmpty) {
+          final items = await _client.from('sale_items').select('product_name, quantity').inFilter('sale_id', weekIds);
+          for (final item in items) {
+            final name = item['product_name'] as String? ?? '';
+            final qty = (item['quantity'] as num?)?.toDouble() ?? 0;
+            productAvg7dMap[name] = (productAvg7dMap[name] ?? 0) + qty;
+          }
+          for (final name in productAvg7dMap.keys.toList()) {
+            productAvg7dMap[name] = productAvg7dMap[name]! / 7;
+          }
+        }
+      } catch (_) {}
+
+      final productAvgMonthMap = <String, double>{};
+      try {
+        final monthStart2 = DateTime(now.year, now.month, 1);
+        final monthIds = (await _client.from('sales').select('id').eq('business_id', businessId).neq('status', 'cancelled').gte('invoice_date', monthStart2.toIso8601String().substring(0, 10)).lte('invoice_date', todayStr)).map((s) => s['id'] as String).toList();
+        if (monthIds.isNotEmpty) {
+          final items = await _client.from('sale_items').select('product_name, quantity').inFilter('sale_id', monthIds);
+          final daysInMonth2 = now.day;
+          for (final item in items) {
+            final name = item['product_name'] as String? ?? '';
+            final qty = (item['quantity'] as num?)?.toDouble() ?? 0;
+            productAvgMonthMap[name] = (productAvgMonthMap[name] ?? 0) + qty;
+          }
+          for (final name in productAvgMonthMap.keys.toList()) {
+            productAvgMonthMap[name] = productAvgMonthMap[name]! / daysInMonth2;
+          }
+        }
+      } catch (_) {}
+
       final recentSales = results[9];
       final recentPayments = results[10];
       final recentExpenses = results[11];
@@ -336,6 +373,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _recentActivity = recentActivity;
         _avgDailySales7d = avgDailySales7d;
         _avgDailySalesMonth = avgDailySalesMonth;
+        _productAvg7d = productAvg7dMap.entries.map((e) => {'name': e.key, 'avg': e.value}).toList()..sort((a, b) => (b['avg'] as double).compareTo(a['avg'] as double));
+        _productAvgMonth = productAvgMonthMap.entries.map((e) => {'name': e.key, 'avg': e.value}).toList()..sort((a, b) => (b['avg'] as double).compareTo(a['avg'] as double));
         _loading = false;
       });
     } catch (e) {
@@ -573,6 +612,67 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
           ],
         ),
+        if (_productAvg7d.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          AppCard(
+            margin: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text('Product Qty Avg / Day', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cs.onSurfaceVariant)),
+                    const Spacer(),
+                    SizedBox(width: 80, child: Text('7D Avg', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant), textAlign: TextAlign.center)),
+                    SizedBox(width: 80, child: Text('Month Avg', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant), textAlign: TextAlign.center)),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                for (int i = 0; i < _productAvg7d.length; i++) ...[
+                  if (i > 0) const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: cs.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _productAvg7d[i]['name'] as String,
+                            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+                          ),
+                        ),
+                        SizedBox(
+                          width: 80,
+                          child: Text(
+                            '${(_productAvg7d[i]['avg'] as double).toStringAsFixed(1)}',
+                            style: TextStyle(fontSize: 13, color: cs.primary, fontWeight: FontWeight.w600),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                        SizedBox(
+                          width: 80,
+                          child: Text(
+                            '${(_productAvgMonth.where((p) => p['name'] == _productAvg7d[i]['name']).map((p) => p['avg'] as double).firstOrNull ?? 0).toStringAsFixed(1)}',
+                            style: TextStyle(fontSize: 13, color: cs.tertiary, fontWeight: FontWeight.w600),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
