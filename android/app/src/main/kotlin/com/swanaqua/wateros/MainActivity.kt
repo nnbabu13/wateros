@@ -1,4 +1,4 @@
-package com.example.wateros
+package com.swanaqua.wateros
 
 import io.flutter.embedding.android.FlutterActivity
 
