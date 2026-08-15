@@ -119,9 +119,9 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
                 children: [
                   Row(
                     children: [
-                      _valueCard('Raw Materials', _rawMaterialValue, Colors.orange),
+                      Expanded(child: _valueCard('Raw Materials', _rawMaterialValue, Colors.orange)),
                       const SizedBox(width: 8),
-                      _valueCard('Finished Goods', _finishedGoodsValue, Colors.green),
+                      Expanded(child: _valueCard('Finished Goods', _finishedGoodsValue, Colors.green)),
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -155,21 +155,19 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
   }
 
   Widget _valueCard(String label, double value, Color color) {
-    return Expanded(
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: TextStyle(fontSize: 11, color: Theme.of(context).textTheme.bodySmall?.color)),
-              const SizedBox(height: 4),
-              Text(
-                '₹${value.toStringAsFixed(0)}',
-                style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: color),
-              ),
-            ],
-          ),
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: TextStyle(fontSize: 11, color: Theme.of(context).textTheme.bodySmall?.color)),
+            const SizedBox(height: 4),
+            Text(
+              '₹${value.toStringAsFixed(0)}',
+              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: color),
+            ),
+          ],
         ),
       ),
     );
