@@ -27,7 +27,6 @@ import '../../features/inventory/presentation/screens/inventory_dashboard_screen
 import '../../features/inventory/presentation/screens/product_detail_screen.dart';
 import '../../features/inventory/presentation/screens/add_inventory_product_screen.dart';
 import '../../features/inventory/presentation/screens/stock_movements_screen.dart';
-import '../../features/inventory/presentation/screens/product_recipes_screen.dart';
 import '../../features/inventory/presentation/screens/monthly_stock_screen.dart';
 import '../../features/employees/presentation/screens/employees_screen.dart';
 import '../../features/employees/presentation/screens/employee_detail_screen.dart';
@@ -220,10 +219,6 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: 'stock-ledger',
                 builder: (context, state) => const StockMovementsScreen(),
-              ),
-              GoRoute(
-                path: 'recipes',
-                builder: (context, state) => const ProductRecipesScreen(),
               ),
               GoRoute(
                 path: 'monthly-stock',

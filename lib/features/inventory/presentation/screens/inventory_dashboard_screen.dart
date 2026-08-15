@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/utils/business_helper.dart';
-import '../../data/models/inventory_product.dart';
 
 class InventoryDashboardScreen extends StatefulWidget {
   const InventoryDashboardScreen({super.key});
@@ -12,9 +12,14 @@ class InventoryDashboardScreen extends StatefulWidget {
 }
 
 class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
+  bool _isLoading = true;
+  double _rawMaterialValue = 0;
+  double _finishedGoodsValue = 0;
+  double _rawMaterialOpening = 0;
+  double _rawMaterialPurchases = 0;
+  double _finishedSales = 0;
   List<Map<String, dynamic>> _rawMaterials = [];
   List<Map<String, dynamic>> _finishedProducts = [];
-  bool _isLoading = true;
 
   @override
   void initState() {
@@ -26,21 +31,64 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
     setState(() => _isLoading = true);
     try {
       final bizId = await BusinessHelper.getOrCreateBusinessId();
-      final allProducts = await Supabase.instance.client
+      final now = DateTime.now();
+      final monthStr = DateFormat('yyyy-MM-01').format(now);
+      final monthStart = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month, 1));
+      final monthEnd = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month + 1, 0));
+
+      final productsFuture = Supabase.instance.client
           .from('products')
           .select('id, name, product_type, unit, packaging_unit, conversion_quantity, current_stock, minimum_stock, purchase_price, average_cost, selling_price, is_active')
           .eq('business_id', bizId)
           .eq('is_active', true)
           .order('name');
+
+      final rawOpeningFuture = Supabase.instance.client
+          .from('stock_entries')
+          .select('total_value')
+          .eq('business_id', bizId)
+          .eq('month', monthStr)
+          .eq('entry_type', 'opening');
+
+      final purchasesFuture = Supabase.instance.client
+          .from('purchase_items')
+          .select('total_amount, product_id, products!inner(product_type, business_id)')
+          .eq('products.business_id', bizId)
+          .eq('products.product_type', 'raw_material')
+          .gte('created_at', monthStart)
+          .lte('created_at', monthEnd);
+
+      final salesFuture = Supabase.instance.client
+          .from('sales')
+          .select('total_amount')
+          .eq('business_id', bizId)
+          .neq('status', 'cancelled')
+          .gte('invoice_date', monthStart)
+          .lte('invoice_date', monthEnd);
+
+      final results = await Future.wait([productsFuture, rawOpeningFuture, purchasesFuture, salesFuture]);
+
+      final allProducts = List<Map<String, dynamic>>.from(results[0] as List);
+      final rawOpening = List<Map<String, dynamic>>.from(results[1] as List);
+      final purchaseItems = List<Map<String, dynamic>>.from(results[2] as List);
+      final salesData = List<Map<String, dynamic>>.from(results[3] as List);
+
+      final rawOpeningValue = rawOpening.fold<double>(0, (s, e) => s + ((e['total_value'] as num?)?.toDouble() ?? 0));
+      final rawPurchasesValue = purchaseItems.fold<double>(0, (s, e) => s + ((e['total_amount'] as num?)?.toDouble() ?? 0));
+      final salesValue = salesData.fold<double>(0, (s, e) => s + ((e['total_amount'] as num?)?.toDouble() ?? 0));
+
+      final rawList = allProducts.where((p) => ['raw_material', 'packaging'].contains(p['product_type'])).toList();
+      final finishedList = allProducts.where((p) => p['product_type'] == 'finished_product').toList();
+
       if (mounted) {
-        final allList = List<Map<String, dynamic>>.from(allProducts as List);
         setState(() {
-          _rawMaterials = allList
-              .where((p) => ['raw_material', 'packaging'].contains(p['product_type']))
-              .toList();
-          _finishedProducts = allList
-              .where((p) => p['product_type'] == 'finished_product')
-              .toList();
+          _rawMaterials = rawList;
+          _finishedProducts = finishedList;
+          _rawMaterialOpening = rawOpeningValue;
+          _rawMaterialPurchases = rawPurchasesValue;
+          _rawMaterialValue = rawOpeningValue + rawPurchasesValue;
+          _finishedSales = salesValue;
+          _finishedGoodsValue = salesValue;
           _isLoading = false;
         });
       }
@@ -52,23 +100,7 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
-    final rawValue = _rawMaterials.fold<double>(0, (s, p) {
-      final stock = (p['current_stock'] as num?)?.toDouble() ?? 0;
-      final cost = (p['average_cost'] as num?)?.toDouble() ?? 0;
-      return s + stock * cost;
-    });
-    final finishedValue = _finishedProducts.fold<double>(0, (s, p) {
-      final stock = (p['current_stock'] as num?)?.toDouble() ?? 0;
-      final price = (p['selling_price'] as num?)?.toDouble() ?? 0;
-      return s + stock * price;
-    });
-    final lowStockCount = [..._rawMaterials, ..._finishedProducts]
-        .where((p) {
-          final stock = (p['current_stock'] as num?)?.toDouble() ?? 0;
-          final min = (p['minimum_stock'] as num?)?.toDouble() ?? 0;
-          return min > 0 && stock <= min;
-        })
-        .length;
+    final netValue = _rawMaterialValue - _finishedGoodsValue;
 
     return Scaffold(
       appBar: AppBar(
@@ -87,30 +119,14 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
                 children: [
                   Row(
                     children: [
-                      _valueCard('Raw Materials', rawValue, Colors.orange),
+                      _valueCard('Raw Materials', _rawMaterialValue, Colors.orange),
                       const SizedBox(width: 8),
-                      _valueCard('Finished Goods', finishedValue, Colors.green),
+                      _valueCard('Finished Goods', _finishedGoodsValue, Colors.green),
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      _valueCard('Total Value', rawValue + finishedValue, Colors.blue),
-                      const SizedBox(width: 8),
-                      _valueCard('Low Stock', lowStockCount.toDouble(), lowStockCount > 0 ? Colors.red : Colors.green),
-                    ],
-                  ),
+                  _valueCard('Net Value', netValue, Colors.blue),
                   const SizedBox(height: 16),
-                  _sectionHeader('Quick Actions', null),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      _actionTile(Icons.add_box, 'Add Product', '/products/add'),
-                      const SizedBox(width: 8),
-                      _actionTile(Icons.restaurant, 'Recipes', '/inventory/recipes'),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
                   Row(
                     children: [
                       _actionTile(Icons.calendar_month, 'Monthly Stock', '/inventory/monthly-stock'),
@@ -149,7 +165,7 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
               Text(label, style: TextStyle(fontSize: 11, color: Theme.of(context).textTheme.bodySmall?.color)),
               const SizedBox(height: 4),
               Text(
-                label.contains('Stock') ? '${value.toInt()}' : '₹${value.toStringAsFixed(0)}',
+                '₹${value.toStringAsFixed(0)}',
                 style: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: color),
               ),
             ],
@@ -202,9 +218,7 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
 
   Widget _materialTile(Map<String, dynamic> p) {
     final stock = (p['current_stock'] as num?)?.toDouble() ?? 0;
-    final minStock = (p['minimum_stock'] as num?)?.toDouble() ?? 0;
     final avgCost = (p['average_cost'] as num?)?.toDouble() ?? 0;
-    final isLow = stock <= minStock && minStock > 0;
     final unit = p['unit'] as String? ?? '';
     final type = p['product_type'] as String? ?? '';
     final typeColor = type == 'raw_material' ? Colors.orange : Colors.teal;
@@ -219,21 +233,7 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
         title: Text(p['name'] as String, style: const TextStyle(fontWeight: FontWeight.w500)),
         subtitle: Text('${stock.toInt()} $unit • ₹${avgCost.toStringAsFixed(0)}/$unit',
             style: const TextStyle(fontSize: 12)),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isLow)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                child: const Text('LOW', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.red)),
-              )
-            else
-              Text('₹${(stock * avgCost).toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w600)),
-            const SizedBox(width: 4),
-            const Icon(Icons.chevron_right, size: 18),
-          ],
-        ),
+        trailing: Text('₹${(stock * avgCost).toStringAsFixed(0)}', style: const TextStyle(fontWeight: FontWeight.w600)),
         onTap: () => context.push('/inventory/${p['id']}/edit'),
       ),
     );
@@ -242,11 +242,9 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
   Widget _finishedProductTile(Map<String, dynamic> p) {
     final stock = (p['current_stock'] as num?)?.toDouble() ?? 0;
     final sellPrice = (p['selling_price'] as num?)?.toDouble() ?? 0;
-    final minStock = (p['minimum_stock'] as num?)?.toDouble() ?? 0;
     final unit = p['unit'] as String? ?? '';
     final pkgUnit = p['packaging_unit'] as String?;
     final conv = (p['conversion_quantity'] as num?)?.toDouble() ?? 1;
-    final isLow = stock <= minStock && minStock > 0;
 
     String stockText = '${stock.toInt()} $unit';
     if (pkgUnit != null && conv > 1) {
@@ -268,19 +266,6 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
         ),
         title: Text(p['name'] as String, style: const TextStyle(fontWeight: FontWeight.w500)),
         subtitle: Text('$stockText • ₹$sellPrice', style: const TextStyle(fontSize: 12)),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (isLow)
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                decoration: BoxDecoration(color: Colors.red.withOpacity(0.1), borderRadius: BorderRadius.circular(4)),
-                child: const Text('LOW', style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Colors.red)),
-              ),
-            const SizedBox(width: 4),
-            const Icon(Icons.chevron_right, size: 18),
-          ],
-        ),
         onTap: () => context.push('/inventory/${p['id']}/edit'),
       ),
     );
