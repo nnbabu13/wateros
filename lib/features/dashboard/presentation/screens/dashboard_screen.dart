@@ -31,6 +31,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   List<Map<String, dynamic>> _lowStockProducts = [];
   List<Map<String, dynamic>> _recentActivity = [];
   List<Map<String, dynamic>> _todaySalesBreakdown = [];
+  double _avgDailySales7d = 0;
+  double _avgDailySalesMonth = 0;
 
   @override
   void initState() {
@@ -224,6 +226,47 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         } catch (_) {}
       }
 
+      // 7-day average sales
+      double avgDailySales7d = 0;
+      try {
+        final sevenDaysAgo = DateTime(now.year, now.month, now.day - 6);
+        final weekSales = await _client
+            .from('sales')
+            .select('total_amount')
+            .eq('business_id', businessId)
+            .neq('status', 'cancelled')
+            .gte('invoice_date', sevenDaysAgo.toIso8601String().substring(0, 10))
+            .lte('invoice_date', todayStr);
+        if (weekSales.isNotEmpty) {
+          double total = 0;
+          for (final s in weekSales) {
+            total += (s['total_amount'] as num?)?.toDouble() ?? 0;
+          }
+          avgDailySales7d = total / 7;
+        }
+      } catch (_) {}
+
+      // Monthly average daily sales
+      double avgDailySalesMonth = 0;
+      try {
+        final monthStart = DateTime(now.year, now.month, 1);
+        final monthSales = await _client
+            .from('sales')
+            .select('total_amount')
+            .eq('business_id', businessId)
+            .neq('status', 'cancelled')
+            .gte('invoice_date', monthStart.toIso8601String().substring(0, 10))
+            .lte('invoice_date', todayStr);
+        if (monthSales.isNotEmpty) {
+          double total = 0;
+          for (final s in monthSales) {
+            total += (s['total_amount'] as num?)?.toDouble() ?? 0;
+          }
+          final daysInMonth = now.day;
+          avgDailySalesMonth = total / daysInMonth;
+        }
+      } catch (_) {}
+
       final recentSales = results[9];
       final recentPayments = results[10];
       final recentExpenses = results[11];
@@ -310,6 +353,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             .map((e) => {'name': e.key, 'quantity': e.value['quantity'], 'amount': e.value['amount']})
             .toList()
           ..sort((a, b) => (b['amount'] as double).compareTo(a['amount'] as double));
+        _avgDailySales7d = avgDailySales7d;
+        _avgDailySalesMonth = avgDailySalesMonth;
         _loading = false;
       });
     } catch (e) {
@@ -496,7 +541,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   Widget _buildTodaySalesBreakdown(BuildContext context) {
-    if (_todaySalesBreakdown.isEmpty) return const SizedBox.shrink();
     final cs = Theme.of(context).colorScheme;
     final rupee = String.fromCharCode(8377);
 
@@ -504,59 +548,103 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          "Today's Sales",
+          'Sales Overview',
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.w600,
               ),
         ),
         const SizedBox(height: 12),
-        AppCard(
-          margin: EdgeInsets.zero,
-          child: Column(
-            children: [
-              for (int i = 0; i < _todaySalesBreakdown.length; i++) ...[
-                if (i > 0) const Divider(height: 1),
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  child: Row(
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        decoration: BoxDecoration(
-                          color: cs.primary,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          _todaySalesBreakdown[i]['name'] as String,
-                          style: const TextStyle(fontWeight: FontWeight.w500),
-                        ),
-                      ),
-                      Text(
-                        '${(_todaySalesBreakdown[i]['quantity'] as double).toStringAsFixed(0)} pcs',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: cs.onSurfaceVariant,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Text(
-                        '$rupee${(_todaySalesBreakdown[i]['amount'] as double).toStringAsFixed(0)}',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w600,
-                          color: cs.primary,
-                        ),
-                      ),
-                    ],
-                  ),
+        // Averages row
+        Row(
+          children: [
+            Expanded(
+              child: AppCard(
+                margin: EdgeInsets.zero,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('7 Day Avg', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$rupee${_avgDailySales7d.toStringAsFixed(0)}',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: cs.primary),
+                    ),
+                  ],
                 ),
-              ],
-            ],
-          ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: AppCard(
+                margin: EdgeInsets.zero,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('This Month Avg', style: TextStyle(fontSize: 11, color: cs.onSurfaceVariant)),
+                    const SizedBox(height: 4),
+                    Text(
+                      '$rupee${_avgDailySalesMonth.toStringAsFixed(0)}',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: cs.tertiary),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
         ),
+        if (_todaySalesBreakdown.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          AppCard(
+            margin: EdgeInsets.zero,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Today', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cs.onSurfaceVariant)),
+                const SizedBox(height: 8),
+                for (int i = 0; i < _todaySalesBreakdown.length; i++) ...[
+                  if (i > 0) const Divider(height: 1),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: cs.primary,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            _todaySalesBreakdown[i]['name'] as String,
+                            style: const TextStyle(fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                        Text(
+                          '${(_todaySalesBreakdown[i]['quantity'] as double).toStringAsFixed(0)} pcs',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: cs.onSurfaceVariant,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          '$rupee${(_todaySalesBreakdown[i]['amount'] as double).toStringAsFixed(0)}',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            color: cs.primary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
       ],
     );
   }
