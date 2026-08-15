@@ -30,6 +30,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   double _payables = 0;
   List<Map<String, dynamic>> _lowStockProducts = [];
   List<Map<String, dynamic>> _recentActivity = [];
+  List<Map<String, dynamic>> _todaySalesBreakdown = [];
 
   @override
   void initState() {
@@ -177,21 +178,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
       double todayCogs = 0;
       final todaySaleIds = todaySalesList.map((s) => s['id'] as String).toList();
+      final todaySalesBreakdown = <String, Map<String, dynamic>>{};
       if (todaySaleIds.isNotEmpty) {
         try {
           final saleItems = await _client
               .from('sale_items')
-              .select('quantity, product_id')
+              .select('quantity, product_id, product_name, total_amount')
               .inFilter('sale_id', todaySaleIds);
-          final productIds = saleItems
-              .map((item) => item['product_id'] as String)
-              .toSet()
-              .toList();
+          final productIds = <String>{};
+          for (final item in saleItems) {
+            final pid = item['product_id'] as String?;
+            if (pid != null) productIds.add(pid);
+          }
           if (productIds.isNotEmpty) {
             final products = await _client
                 .from('products')
                 .select('id, purchase_price, average_cost')
-                .inFilter('id', productIds);
+                .inFilter('id', productIds.toList());
             final costMap = <String, double>{};
             for (final p in products) {
               final avgCost = (p['average_cost'] as num?)?.toDouble() ?? 0;
@@ -203,6 +206,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               final qty = (item['quantity'] as num?)?.toDouble() ?? 0;
               final cost = costMap[item['product_id'] as String] ?? 0;
               todayCogs += qty * cost;
+            }
+          }
+          for (final item in saleItems) {
+            final name = item['product_name'] as String? ?? 'Unknown';
+            final qty = (item['quantity'] as num?)?.toDouble() ?? 0;
+            final amt = (item['total_amount'] as num?)?.toDouble() ?? 0;
+            if (todaySalesBreakdown.containsKey(name)) {
+              todaySalesBreakdown[name]!['quantity'] =
+                  (todaySalesBreakdown[name]!['quantity'] as double) + qty;
+              todaySalesBreakdown[name]!['amount'] =
+                  (todaySalesBreakdown[name]!['amount'] as double) + amt;
+            } else {
+              todaySalesBreakdown[name] = {'quantity': qty, 'amount': amt};
             }
           }
         } catch (_) {}
@@ -290,6 +306,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _payables = payables;
         _lowStockProducts = lowStockProducts;
         _recentActivity = recentActivity;
+        _todaySalesBreakdown = todaySalesBreakdown.entries
+            .map((e) => {'name': e.key, 'quantity': e.value['quantity'], 'amount': e.value['amount']})
+            .toList()
+          ..sort((a, b) => (b['amount'] as double).compareTo(a['amount'] as double));
         _loading = false;
       });
     } catch (e) {
@@ -362,6 +382,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       _buildWelcomeHeader(context),
                       const SizedBox(height: 20),
                       _buildMetricsGrid(context),
+                      const SizedBox(height: 20),
+                      _buildTodaySalesBreakdown(context),
                       const SizedBox(height: 20),
                       _buildFinancialOverview(context),
                       const SizedBox(height: 20),
@@ -468,6 +490,72 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           icon: Icons.account_balance,
           color: Colors.indigo,
           onTap: () => context.push('/bankbook'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTodaySalesBreakdown(BuildContext context) {
+    if (_todaySalesBreakdown.isEmpty) return const SizedBox.shrink();
+    final cs = Theme.of(context).colorScheme;
+    final rupee = String.fromCharCode(8377);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          "Today's Sales",
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+        const SizedBox(height: 12),
+        AppCard(
+          margin: EdgeInsets.zero,
+          child: Column(
+            children: [
+              for (int i = 0; i < _todaySalesBreakdown.length; i++) ...[
+                if (i > 0) const Divider(height: 1),
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: cs.primary,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          _todaySalesBreakdown[i]['name'] as String,
+                          style: const TextStyle(fontWeight: FontWeight.w500),
+                        ),
+                      ),
+                      Text(
+                        '${(_todaySalesBreakdown[i]['quantity'] as double).toStringAsFixed(0)} pcs',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: cs.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Text(
+                        '$rupee${(_todaySalesBreakdown[i]['amount'] as double).toStringAsFixed(0)}',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: cs.primary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ],
     );
