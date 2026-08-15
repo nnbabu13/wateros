@@ -30,11 +30,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   double _payables = 0;
   List<Map<String, dynamic>> _lowStockProducts = [];
   List<Map<String, dynamic>> _recentActivity = [];
-  List<Map<String, dynamic>> _todaySalesBreakdown = [];
   double _avgDailySales7d = 0;
   double _avgDailySalesMonth = 0;
-  List<Map<String, dynamic>> _productAvg7d = [];
-  List<Map<String, dynamic>> _productAvgMonth = [];
 
   @override
   void initState() {
@@ -182,7 +179,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
       double todayCogs = 0;
       final todaySaleIds = todaySalesList.map((s) => s['id'] as String).toList();
-      final todaySalesBreakdown = <String, Map<String, dynamic>>{};
       if (todaySaleIds.isNotEmpty) {
         try {
           final saleItems = await _client
@@ -210,19 +206,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               final qty = (item['quantity'] as num?)?.toDouble() ?? 0;
               final cost = costMap[item['product_id'] as String] ?? 0;
               todayCogs += qty * cost;
-            }
-          }
-          for (final item in saleItems) {
-            final name = item['product_name'] as String? ?? 'Unknown';
-            final qty = (item['quantity'] as num?)?.toDouble() ?? 0;
-            final amt = (item['total_amount'] as num?)?.toDouble() ?? 0;
-            if (todaySalesBreakdown.containsKey(name)) {
-              todaySalesBreakdown[name]!['quantity'] =
-                  (todaySalesBreakdown[name]!['quantity'] as double) + qty;
-              todaySalesBreakdown[name]!['amount'] =
-                  (todaySalesBreakdown[name]!['amount'] as double) + amt;
-            } else {
-              todaySalesBreakdown[name] = {'quantity': qty, 'amount': amt};
             }
           }
         } catch (_) {}
@@ -266,43 +249,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           }
           final daysInMonth = now.day;
           avgDailySalesMonth = total / daysInMonth;
-        }
-      } catch (_) {}
-
-      // Product-wise 7-day average qty
-      final productAvg7dMap = <String, double>{};
-      try {
-        final weekStart = DateTime(now.year, now.month, now.day - 6);
-        final weekIds2 = (await _client.from('sales').select('id').eq('business_id', businessId).neq('status', 'cancelled').gte('invoice_date', weekStart.toIso8601String().substring(0, 10)).lte('invoice_date', todayStr)).map((s) => s['id'] as String).toList();
-        if (weekIds2.isNotEmpty) {
-          final items7d = await _client.from('sale_items').select('product_name, quantity').inFilter('sale_id', weekIds2);
-          for (final item in items7d) {
-            final name = item['product_name'] as String? ?? '';
-            final qty = (item['quantity'] as num?)?.toDouble() ?? 0;
-            productAvg7dMap[name] = (productAvg7dMap[name] ?? 0) + qty;
-          }
-          for (final name in productAvg7dMap.keys.toList()) {
-            productAvg7dMap[name] = productAvg7dMap[name]! / 7;
-          }
-        }
-      } catch (_) {}
-
-      // Product-wise monthly average qty
-      final productAvgMonthMap = <String, double>{};
-      try {
-        final monthStart2 = DateTime(now.year, now.month, 1);
-        final monthIds2 = (await _client.from('sales').select('id').eq('business_id', businessId).neq('status', 'cancelled').gte('invoice_date', monthStart2.toIso8601String().substring(0, 10)).lte('invoice_date', todayStr)).map((s) => s['id'] as String).toList();
-        if (monthIds2.isNotEmpty) {
-          final itemsMonth = await _client.from('sale_items').select('product_name, quantity').inFilter('sale_id', monthIds2);
-          final days2 = now.day;
-          for (final item in itemsMonth) {
-            final name = item['product_name'] as String? ?? '';
-            final qty = (item['quantity'] as num?)?.toDouble() ?? 0;
-            productAvgMonthMap[name] = (productAvgMonthMap[name] ?? 0) + qty;
-          }
-          for (final name in productAvgMonthMap.keys.toList()) {
-            productAvgMonthMap[name] = productAvgMonthMap[name]! / days2;
-          }
         }
       } catch (_) {}
 
@@ -388,14 +334,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _payables = payables;
         _lowStockProducts = lowStockProducts;
         _recentActivity = recentActivity;
-        _todaySalesBreakdown = todaySalesBreakdown.entries
-            .map((e) => {'name': e.key, 'quantity': e.value['quantity'], 'amount': e.value['amount']})
-            .toList()
-          ..sort((a, b) => (b['amount'] as double).compareTo(a['amount'] as double));
         _avgDailySales7d = avgDailySales7d;
         _avgDailySalesMonth = avgDailySalesMonth;
-        _productAvg7d = productAvg7dMap.entries.map((e) => {'name': e.key, 'avg': e.value}).toList()..sort((a, b) => (b['avg'] as double).compareTo(a['avg'] as double));
-        _productAvgMonth = productAvgMonthMap.entries.map((e) => {'name': e.key, 'avg': e.value}).toList()..sort((a, b) => (b['avg'] as double).compareTo(a['avg'] as double));
         _loading = false;
       });
     } catch (e) {
@@ -633,120 +573,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
           ],
         ),
-        if (_productAvg7d.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          AppCard(
-            margin: EdgeInsets.zero,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text('Product Qty Avg / Day', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cs.onSurfaceVariant)),
-                    const Spacer(),
-                    SizedBox(width: 80, child: Text('7D Avg', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant), textAlign: TextAlign.center)),
-                    SizedBox(width: 80, child: Text('Month Avg', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant), textAlign: TextAlign.center)),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                for (int i = 0; i < _productAvg7d.length; i++) ...[
-                  if (i > 0) const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: cs.primary,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            _productAvg7d[i]['name'] as String,
-                            style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
-                          ),
-                        ),
-                        SizedBox(
-                          width: 80,
-                          child: Text(
-                            '${(_productAvg7d[i]['avg'] as double).toStringAsFixed(1)}',
-                            style: TextStyle(fontSize: 13, color: cs.primary, fontWeight: FontWeight.w600),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                        SizedBox(
-                          width: 80,
-                          child: Text(
-                            '${(_productAvgMonth.where((p) => p['name'] == _productAvg7d[i]['name']).map((p) => p['avg'] as double).firstOrNull ?? 0).toStringAsFixed(1)}',
-                            style: TextStyle(fontSize: 13, color: cs.tertiary, fontWeight: FontWeight.w600),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
-        if (_todaySalesBreakdown.isNotEmpty) ...[
-          const SizedBox(height: 12),
-          AppCard(
-            margin: EdgeInsets.zero,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Today', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: cs.onSurfaceVariant)),
-                const SizedBox(height: 8),
-                for (int i = 0; i < _todaySalesBreakdown.length; i++) ...[
-                  if (i > 0) const Divider(height: 1),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: cs.primary,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Text(
-                            _todaySalesBreakdown[i]['name'] as String,
-                            style: const TextStyle(fontWeight: FontWeight.w500),
-                          ),
-                        ),
-                        Text(
-                          '${(_todaySalesBreakdown[i]['quantity'] as double).toStringAsFixed(0)} pcs',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: cs.onSurfaceVariant,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Text(
-                          '$rupee${(_todaySalesBreakdown[i]['amount'] as double).toStringAsFixed(0)}',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: cs.primary,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ],
       ],
     );
   }
