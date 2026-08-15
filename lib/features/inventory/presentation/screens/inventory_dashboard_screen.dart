@@ -36,49 +36,64 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
       final monthStart = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month, 1));
       final monthEnd = DateFormat('yyyy-MM-dd').format(DateTime(now.year, now.month + 1, 0));
 
-      final productsFuture = Supabase.instance.client
+      final allProducts = await Supabase.instance.client
           .from('products')
           .select('id, name, product_type, unit, packaging_unit, conversion_quantity, current_stock, minimum_stock, purchase_price, average_cost, selling_price, is_active')
           .eq('business_id', bizId)
           .eq('is_active', true)
           .order('name');
 
-      final rawOpeningFuture = Supabase.instance.client
-          .from('stock_entries')
-          .select('total_value')
-          .eq('business_id', bizId)
-          .eq('month', monthStr)
-          .eq('entry_type', 'opening');
+      final rawList = List<Map<String, dynamic>>.from(allProducts as List)
+          .where((p) => ['raw_material', 'packaging'].contains(p['product_type']))
+          .toList();
+      final finishedList = List<Map<String, dynamic>>.from(allProducts as List)
+          .where((p) => p['product_type'] == 'finished_product')
+          .toList();
 
-      final purchasesFuture = Supabase.instance.client
-          .from('purchase_items')
-          .select('total_amount, product_id, products!inner(product_type, business_id)')
-          .eq('products.business_id', bizId)
-          .eq('products.product_type', 'raw_material')
-          .gte('created_at', monthStart)
-          .lte('created_at', monthEnd);
+      double rawOpeningValue = 0;
+      double rawPurchasesValue = 0;
+      double salesValue = 0;
 
-      final salesFuture = Supabase.instance.client
-          .from('sales')
-          .select('total_amount')
-          .eq('business_id', bizId)
-          .neq('status', 'cancelled')
-          .gte('invoice_date', monthStart)
-          .lte('invoice_date', monthEnd);
+      try {
+        final openingData = await Supabase.instance.client
+            .from('stock_entries')
+            .select('total_value')
+            .eq('business_id', bizId)
+            .eq('month', monthStr)
+            .eq('entry_type', 'opening');
+        rawOpeningValue = (openingData as List).fold<double>(0, (s, e) => s + ((e['total_value'] as num?)?.toDouble() ?? 0));
+      } catch (_) {}
 
-      final results = await Future.wait([productsFuture, rawOpeningFuture, purchasesFuture, salesFuture]);
+      try {
+        final purchases = await Supabase.instance.client
+            .from('purchases')
+            .select('purchase_items(total_amount, product_id)')
+            .eq('business_id', bizId)
+            .neq('status', 'cancelled')
+            .gte('purchase_date', monthStart)
+            .lte('purchase_date', monthEnd);
+        for (final p in (purchases as List)) {
+          final items = (p['purchase_items'] as List?) ?? [];
+          for (final item in items) {
+            final pid = item['product_id'] as String?;
+            final product = rawList.firstWhere((r) => r['id'] == pid, orElse: () => {});
+            if (product.isNotEmpty) {
+              rawPurchasesValue += ((item['total_amount'] as num?)?.toDouble() ?? 0);
+            }
+          }
+        }
+      } catch (_) {}
 
-      final allProducts = List<Map<String, dynamic>>.from(results[0] as List);
-      final rawOpening = List<Map<String, dynamic>>.from(results[1] as List);
-      final purchaseItems = List<Map<String, dynamic>>.from(results[2] as List);
-      final salesData = List<Map<String, dynamic>>.from(results[3] as List);
-
-      final rawOpeningValue = rawOpening.fold<double>(0, (s, e) => s + ((e['total_value'] as num?)?.toDouble() ?? 0));
-      final rawPurchasesValue = purchaseItems.fold<double>(0, (s, e) => s + ((e['total_amount'] as num?)?.toDouble() ?? 0));
-      final salesValue = salesData.fold<double>(0, (s, e) => s + ((e['total_amount'] as num?)?.toDouble() ?? 0));
-
-      final rawList = allProducts.where((p) => ['raw_material', 'packaging'].contains(p['product_type'])).toList();
-      final finishedList = allProducts.where((p) => p['product_type'] == 'finished_product').toList();
+      try {
+        final salesData = await Supabase.instance.client
+            .from('sales')
+            .select('total_amount')
+            .eq('business_id', bizId)
+            .neq('status', 'cancelled')
+            .gte('invoice_date', monthStart)
+            .lte('invoice_date', monthEnd);
+        salesValue = (salesData as List).fold<double>(0, (s, e) => s + ((e['total_amount'] as num?)?.toDouble() ?? 0));
+      } catch (_) {}
 
       if (mounted) {
         setState(() {

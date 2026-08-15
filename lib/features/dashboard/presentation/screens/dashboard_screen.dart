@@ -450,8 +450,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       const SizedBox(height: 20),
                       _buildTodaySalesBreakdown(context),
                       const SizedBox(height: 20),
-                      _buildFinancialOverview(context),
-                      const SizedBox(height: 20),
                       _buildQuickActions(context),
                       const SizedBox(height: 20),
                       _buildLowStockAlerts(context),
@@ -673,107 +671,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
           ),
         ],
-      ],
-    );
-  }
-
-  Widget _buildFinancialOverview(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Financial Overview',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: AppCard(
-                margin: EdgeInsets.zero,
-                onTap: () => context.push('/reports'),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Icon(
-                      Icons.trending_up,
-                      color: _todayProfit >= 0 ? Colors.green : Colors.red,
-                      size: 24,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _formatCurrency(_todayProfit),
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: _todayProfit >= 0 ? Colors.green : Colors.red,
-                          ),
-                    ),
-                    Text(
-                      'Today\'s Profit',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: AppCard(
-                margin: EdgeInsets.zero,
-                onTap: () => context.push('/sales', extra: 2),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.people, color: Colors.blue, size: 24),
-                    const SizedBox(height: 8),
-                    Text(
-                      _formatCurrency(_receivables),
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: Colors.blue,
-                          ),
-                    ),
-                    Text(
-                      'Receivables',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        AppCard(
-          margin: EdgeInsets.zero,
-          onTap: () => context.push('/suppliers'),
-          child: Row(
-            children: [
-              const Icon(Icons.warning_amber, color: Colors.orange, size: 24),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _formatCurrency(_payables),
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w700,
-                            color: Colors.orange,
-                          ),
-                    ),
-                    Text(
-                      'Outstanding Payables',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
       ],
     );
   }
