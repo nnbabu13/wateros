@@ -28,7 +28,7 @@ import '../../features/inventory/presentation/screens/product_detail_screen.dart
 import '../../features/inventory/presentation/screens/add_inventory_product_screen.dart';
 import '../../features/inventory/presentation/screens/stock_movements_screen.dart';
 import '../../features/inventory/presentation/screens/product_recipes_screen.dart';
-import '../../features/inventory/presentation/screens/production_screen.dart';
+import '../../features/inventory/presentation/screens/monthly_stock_screen.dart';
 import '../../features/employees/presentation/screens/employees_screen.dart';
 import '../../features/employees/presentation/screens/employee_detail_screen.dart';
 import '../../features/employees/presentation/screens/add_employee_screen.dart';
@@ -38,6 +38,7 @@ import '../../features/cashbook/presentation/screens/transactions_screen.dart';
 import '../../features/sales/presentation/screens/daily_sales_screen.dart';
 import '../../features/bankbook/presentation/screens/bankbook_screen.dart';
 import '../../features/reports/presentation/screens/reports_screen.dart';
+import '../../features/reports/presentation/screens/pnl_screen.dart';
 import '../../features/notifications/presentation/screens/notifications_screen.dart';
 import '../../features/settings/presentation/screens/settings_screen.dart';
 import '../../features/settings/presentation/screens/business_profile_screen.dart';
@@ -162,7 +163,9 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             routes: [
               GoRoute(
                 path: 'create',
-                builder: (context, state) => const CreatePurchaseScreen(),
+                builder: (context, state) => CreatePurchaseScreen(
+                  purchaseId: state.extra as String?,
+                ),
               ),
             ],
           ),
@@ -223,8 +226,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
                 builder: (context, state) => const ProductRecipesScreen(),
               ),
               GoRoute(
-                path: 'production',
-                builder: (context, state) => const ProductionScreen(),
+                path: 'monthly-stock',
+                builder: (context, state) => const MonthlyStockScreen(),
               ),
               GoRoute(
                 path: ':id',
@@ -297,6 +300,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: 'expense-report',
                 builder: (context, state) => const ExpenseReportScreen(),
+              ),
+              GoRoute(
+                path: 'pnl',
+                builder: (context, state) => const PnlScreen(),
               ),
             ],
           ),

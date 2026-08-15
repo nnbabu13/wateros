@@ -1,0 +1,210 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../../core/utils/business_helper.dart';
+
+class PnlScreen extends StatefulWidget {
+  const PnlScreen({super.key});
+
+  @override
+  State<PnlScreen> createState() => _PnlScreenState();
+}
+
+class _PnlScreenState extends State<PnlScreen> {
+  DateTime _selectedMonth = DateTime(DateTime.now().year, DateTime.now().month);
+  bool _isLoading = true;
+  double _openingStock = 0;
+  double _purchases = 0;
+  double _closingStock = 0;
+  double _salesRevenue = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  String get _monthStr => DateFormat('yyyy-MM-01').format(_selectedMonth);
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    try {
+      final bizId = await BusinessHelper.getOrCreateBusinessId();
+      final monthStart = DateFormat('yyyy-MM-dd').format(DateTime(_selectedMonth.year, _selectedMonth.month, 1));
+      final monthEnd = DateFormat('yyyy-MM-dd').format(DateTime(_selectedMonth.year, _selectedMonth.month + 1, 0));
+
+      final openingFuture = Supabase.instance.client
+          .from('stock_entries')
+          .select('total_value')
+          .eq('business_id', bizId)
+          .eq('month', _monthStr)
+          .eq('entry_type', 'opening');
+
+      final closingFuture = Supabase.instance.client
+          .from('stock_entries')
+          .select('total_value')
+          .eq('business_id', bizId)
+          .eq('month', _monthStr)
+          .eq('entry_type', 'closing');
+
+      final purchasesFuture = Supabase.instance.client
+          .from('purchases')
+          .select('total_amount')
+          .eq('business_id', bizId)
+          .neq('status', 'cancelled')
+          .gte('purchase_date', monthStart)
+          .lte('purchase_date', monthEnd);
+
+      final salesFuture = Supabase.instance.client
+          .from('sales')
+          .select('total_amount')
+          .eq('business_id', bizId)
+          .neq('status', 'cancelled')
+          .gte('invoice_date', monthStart)
+          .lte('invoice_date', monthEnd);
+
+      final results = await Future.wait([openingFuture, closingFuture, purchasesFuture, salesFuture]);
+
+      final openingData = List<Map<String, dynamic>>.from(results[0] as List);
+      final closingData = List<Map<String, dynamic>>.from(results[1] as List);
+      final purchasesData = List<Map<String, dynamic>>.from(results[2] as List);
+      final salesData = List<Map<String, dynamic>>.from(results[3] as List);
+
+      if (mounted) {
+        setState(() {
+          _openingStock = openingData.fold(0, (s, e) => s + ((e['total_value'] as num?)?.toDouble() ?? 0));
+          _closingStock = closingData.fold(0, (s, e) => s + ((e['total_value'] as num?)?.toDouble() ?? 0));
+          _purchases = purchasesData.fold(0, (s, e) => s + ((e['total_amount'] as num?)?.toDouble() ?? 0));
+          _salesRevenue = salesData.fold(0, (s, e) => s + ((e['total_amount'] as num?)?.toDouble() ?? 0));
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  double get _cogs => _openingStock + _purchases - _closingStock;
+  double get _grossProfit => _salesRevenue - _cogs;
+
+  void _prevMonth() {
+    setState(() {
+      _selectedMonth = DateTime(_selectedMonth.year, _selectedMonth.month - 1);
+    });
+    _loadData();
+  }
+
+  void _nextMonth() {
+    final now = DateTime.now();
+    final next = DateTime(_selectedMonth.year, _selectedMonth.month + 1);
+    if (next.isBefore(DateTime(now.year, now.month + 1))) {
+      setState(() {
+        _selectedMonth = next;
+      });
+      _loadData();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final monthLabel = DateFormat('MMMM yyyy').format(_selectedMonth);
+    final isCurrentMonth = _selectedMonth.year == DateTime.now().year && _selectedMonth.month == DateTime.now().month;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Profit & Loss'),
+        actions: [
+          IconButton(onPressed: _loadData, icon: const Icon(Icons.refresh)),
+        ],
+      ),
+      body: Column(
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            color: cs.surface,
+            child: Row(
+              children: [
+                IconButton(onPressed: _prevMonth, icon: const Icon(Icons.chevron_left)),
+                const Spacer(),
+                Column(
+                  children: [
+                    Text(monthLabel, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16)),
+                    if (isCurrentMonth)
+                      Text('Current Month', style: TextStyle(fontSize: 11, color: cs.primary)),
+                  ],
+                ),
+                const Spacer(),
+                IconButton(
+                  onPressed: isCurrentMonth ? null : _nextMonth,
+                  icon: const Icon(Icons.chevron_right),
+                ),
+              ],
+            ),
+          ),
+          if (_isLoading)
+            const Expanded(child: Center(child: CircularProgressIndicator()))
+          else
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _pnlCard('Sales Revenue', _salesRevenue, cs.primary, cs),
+                  const SizedBox(height: 12),
+                  _pnlCard('Opening Stock', _openingStock, Colors.orange, cs),
+                  const SizedBox(height: 8),
+                  _pnlCard('Purchases', _purchases, Colors.blue, cs),
+                  const SizedBox(height: 8),
+                  _pnlCard('Closing Stock', _closingStock, Colors.teal, cs),
+                  const Divider(height: 32),
+                  _pnlCard('Cost of Goods Sold (COGS)', _cogs, Colors.red, cs, isFormula: true),
+                  const SizedBox(height: 16),
+                  _pnlCard('Gross Profit', _grossProfit, _grossProfit >= 0 ? Colors.green : Colors.red, cs, isHighlight: true),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pnlCard(String label, double value, Color color, ColorScheme cs, {bool isFormula = false, bool isHighlight = false}) {
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            if (isFormula)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                decoration: BoxDecoration(
+                  color: cs.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                child: Text('f(x)', style: TextStyle(fontSize: 10, color: cs.onSurfaceVariant)),
+              ),
+            if (isFormula) const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontWeight: isHighlight ? FontWeight.w700 : FontWeight.w500,
+                  fontSize: isHighlight ? 16 : 14,
+                ),
+              ),
+            ),
+            Text(
+              '₹${value.toStringAsFixed(0)}',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: isHighlight ? 18 : 15,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -19,7 +19,8 @@ class _PurchaseLineItem {
 }
 
 class CreatePurchaseScreen extends StatefulWidget {
-  const CreatePurchaseScreen({super.key});
+  final String? purchaseId;
+  const CreatePurchaseScreen({super.key, this.purchaseId});
 
   @override
   State<CreatePurchaseScreen> createState() => _CreatePurchaseScreenState();
@@ -38,12 +39,13 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   DateTime _purchaseDate = DateTime.now();
   bool _isLoading = false;
   bool _isLoadingData = true;
+  bool get _isEditing => widget.purchaseId != null;
 
   @override
   void initState() {
     super.initState();
     _loadData();
-    _lineItems.add(_PurchaseLineItem());
+    if (!_isEditing) _lineItems.add(_PurchaseLineItem());
   }
 
   Future<void> _loadData() async {
@@ -62,12 +64,43 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
           .eq('is_active', true)
           .order('name');
       final results = await Future.wait([suppliersFuture, productsFuture]);
+
       if (mounted) {
         setState(() {
           _suppliers = List<Map<String, dynamic>>.from(results[0]);
           _allProducts = List<Map<String, dynamic>>.from(results[1]);
+        });
+      }
+
+      if (_isEditing) {
+        final purchaseData = await Supabase.instance.client
+            .from('purchases')
+            .select('*, purchase_items(*)')
+            .eq('id', widget.purchaseId!)
+            .single();
+
+        final items = (purchaseData['purchase_items'] as List?) ?? [];
+        setState(() {
+          _selectedSupplierId = purchaseData['supplier_id'] as String?;
+          _purchaseDate = DateTime.tryParse(purchaseData['purchase_date'] as String? ?? '') ?? DateTime.now();
+          _paymentMode = purchaseData['payment_mode'] as String? ?? 'cash';
+          _paidAmountController.text = ((purchaseData['paid_amount'] as num?)?.toDouble() ?? 0).toString();
+          _notesController.text = purchaseData['notes'] as String? ?? '';
+          _lineItems = items.map<_PurchaseLineItem>((item) {
+            final li = _PurchaseLineItem();
+            li.productId = item['product_id'] as String?;
+            li.productName = item['product_name'] as String? ?? '';
+            li.quantity = (item['quantity'] as num?)?.toDouble() ?? 1;
+            li.unitPrice = (item['unit_price'] as num?)?.toDouble() ?? 0;
+            li.discountPercent = 0;
+            li.gstRate = (item['gst_rate'] as num?)?.toDouble() ?? 0;
+            return li;
+          }).toList();
+          if (_lineItems.isEmpty) _lineItems.add(_PurchaseLineItem());
           _isLoadingData = false;
         });
+      } else {
+        if (mounted) setState(() => _isLoadingData = false);
       }
     } catch (e) {
       if (mounted) setState(() => _isLoadingData = false);
@@ -127,11 +160,25 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
         'notes': _notesController.text.isEmpty ? null : _notesController.text,
       };
 
-      final response = await Supabase.instance.client
-          .from('purchases')
-          .insert(purchaseData)
-          .select()
-          .single();
+      final response;
+      if (_isEditing) {
+        response = await Supabase.instance.client
+            .from('purchases')
+            .update(purchaseData)
+            .eq('id', widget.purchaseId!)
+            .select()
+            .single();
+        await Supabase.instance.client
+            .from('purchase_items')
+            .delete()
+            .eq('purchase_id', widget.purchaseId!);
+      } else {
+        response = await Supabase.instance.client
+            .from('purchases')
+            .insert(purchaseData)
+            .select()
+            .single();
+      }
 
       for (final item in validItems) {
         await Supabase.instance.client.from('purchase_items').insert({
@@ -149,7 +196,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Purchase created!'), backgroundColor: Colors.green),
+          SnackBar(content: Text(_isEditing ? 'Purchase updated!' : 'Purchase created!'), backgroundColor: Colors.green),
         );
         Navigator.of(context).pop(true);
       }
@@ -175,7 +222,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('Stock Purchase')),
+      appBar: AppBar(title: Text(_isEditing ? 'Edit Purchase' : 'Stock Purchase')),
       body: _isLoadingData
           ? const Center(child: CircularProgressIndicator())
           : Form(
@@ -319,7 +366,7 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
                       icon: _isLoading
                           ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                           : const Icon(Icons.check_circle),
-                      label: Text(_isLoading ? 'Saving...' : 'Create Purchase'),
+                      label: Text(_isLoading ? 'Saving...' : (_isEditing ? 'Update Purchase' : 'Create Purchase')),
                       style: ElevatedButton.styleFrom(
                         backgroundColor: cs.primary,
                         foregroundColor: cs.onPrimary,

@@ -11,6 +11,7 @@ class ReportsScreen extends StatelessWidget {
       _ReportOption('Daily Sales', Icons.today, Colors.blue, '/daily-sales'),
       _ReportOption('All Sales', Icons.receipt_long, Colors.green, '/sales'),
       _ReportOption('Expense Report', Icons.receipt_long, Colors.red, '/reports/expense-report'),
+      _ReportOption('Profit & Loss', Icons.analytics, Colors.green, '/reports/pnl'),
       _ReportOption('Cash Flow', Icons.account_balance_wallet, Colors.indigo, '/cashbook'),
       _ReportOption('Bank Book', Icons.account_balance, Colors.teal, '/bankbook'),
       _ReportOption('Inventory', Icons.inventory, Colors.brown, '/inventory'),
