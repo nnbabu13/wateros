@@ -162,6 +162,33 @@ class _CreatePurchaseScreenState extends State<CreatePurchaseScreen> {
 
       final response;
       if (_isEditing) {
+        final oldItems = await Supabase.instance.client
+            .from('purchase_items')
+            .select('product_id, quantity')
+            .eq('purchase_id', widget.purchaseId!);
+
+        for (final oldItem in oldItems) {
+          final pid = oldItem['product_id'] as String?;
+          final oldQty = (oldItem['quantity'] as num?)?.toDouble() ?? 0;
+          if (pid != null && oldQty > 0) {
+            try {
+              final product = await Supabase.instance.client
+                  .from('products')
+                  .select('product_type, current_stock')
+                  .eq('id', pid)
+                  .single();
+              final pType = product['product_type'] as String? ?? '';
+              if (pType == 'raw_material' || pType == 'packaging') {
+                final currentStock = (product['current_stock'] as num?)?.toDouble() ?? 0;
+                await Supabase.instance.client
+                    .from('products')
+                    .update({'current_stock': currentStock - oldQty})
+                    .eq('id', pid);
+              }
+            } catch (_) {}
+          }
+        }
+
         response = await Supabase.instance.client
             .from('purchases')
             .update(purchaseData)
