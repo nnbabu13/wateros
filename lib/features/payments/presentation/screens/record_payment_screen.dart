@@ -128,6 +128,38 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
             'status': newStatus,
           }).eq('id', _selectedSaleId!);
         } catch (_) {}
+      } else {
+        // FIFO: auto-apply unlinked payment to oldest pending sales
+        try {
+          final pendingSales = await Supabase.instance.client
+              .from('sales')
+              .select('id, total_amount, paid_amount, balance_amount')
+              .eq('customer_id', _selectedCustomerId!)
+              .inFilter('status', ['pending', 'partially_paid'])
+              .order('invoice_date', ascending: true);
+
+          double remaining = amount;
+          for (final sale in pendingSales) {
+            if (remaining <= 0) break;
+            final saleBalance = (sale['balance_amount'] as num?)?.toDouble() ?? 0;
+            if (saleBalance <= 0) continue;
+
+            final applyAmount = remaining < saleBalance ? remaining : saleBalance;
+            final totalAmt = (sale['total_amount'] as num?)?.toDouble() ?? 0;
+            final currentPaid = (sale['paid_amount'] as num?)?.toDouble() ?? 0;
+            final newPaid = currentPaid + applyAmount;
+            final newBalance = totalAmt - newPaid;
+            final newStatus = newPaid >= totalAmt ? 'paid' : (newPaid > 0 ? 'partially_paid' : 'pending');
+
+            await Supabase.instance.client.from('sales').update({
+              'paid_amount': newPaid,
+              'balance_amount': newBalance < 0 ? 0 : newBalance,
+              'status': newStatus,
+            }).eq('id', sale['id']);
+
+            remaining -= applyAmount;
+          }
+        } catch (_) {}
       }
 
       // Recalculate and update customer current_balance (totalSales - totalPaid)
