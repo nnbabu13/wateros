@@ -130,6 +130,28 @@ class _RecordPaymentScreenState extends State<RecordPaymentScreen> {
         } catch (_) {}
       }
 
+      // Recalculate and update customer current_balance (totalSales - totalPaid)
+      try {
+        final salesData = await Supabase.instance.client
+            .from('sales')
+            .select('total_amount')
+            .eq('customer_id', _selectedCustomerId!)
+            .neq('status', 'cancelled');
+        final paymentsData = await Supabase.instance.client
+            .from('payments')
+            .select('amount')
+            .eq('customer_id', _selectedCustomerId!);
+
+        final totalSales = (salesData as List).fold<double>(0, (s, e) => s + ((e['total_amount'] as num?)?.toDouble() ?? 0));
+        final totalPaid = (paymentsData as List).fold<double>(0, (s, e) => s + ((e['amount'] as num?)?.toDouble() ?? 0));
+        final correctBalance = totalSales - totalPaid;
+
+        await Supabase.instance.client
+            .from('customers')
+            .update({'current_balance': correctBalance < 0 ? 0 : correctBalance})
+            .eq('id', _selectedCustomerId!);
+      } catch (_) {}
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Payment recorded!'), backgroundColor: Colors.green),
