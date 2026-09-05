@@ -7,6 +7,8 @@ class DashboardRepository {
     final now = DateTime.now();
     final todayStr =
         DateTime(now.year, now.month, now.day).toIso8601String().substring(0, 10);
+    final monthStartStr =
+        DateTime(now.year, now.month, 1).toIso8601String().substring(0, 10);
 
     double todaySales = 0;
     double todayCollection = 0;
@@ -59,17 +61,20 @@ class DashboardRepository {
           .select('current_balance')
           .eq('business_id', businessId)
           .gt('current_balance', 0)),
-      // 6. Cash transactions
+      // 6. Cash transactions (current month)
       _safeQuery(() => _client
           .from('cash_transactions')
           .select('transaction_type, amount')
-          .eq('business_id', businessId)),
-      // 7. Bank accounts
-      _safeQuery(() => _client
-          .from('bank_accounts')
-          .select('id, balance')
           .eq('business_id', businessId)
-          .eq('is_active', true)),
+          .gte('transaction_date', monthStartStr)
+          .lte('transaction_date', todayStr)),
+      // 7. Bank transactions (current month)
+      _safeQuery(() => _client
+          .from('bank_transactions')
+          .select('transaction_type, amount')
+          .eq('business_id', businessId)
+          .gte('transaction_date', monthStartStr)
+          .lte('transaction_date', todayStr)),
       // 8. Products for low stock
       _safeQuery(() => _client
           .from('products')
@@ -136,7 +141,7 @@ class DashboardRepository {
       payables += (s['current_balance'] as num?)?.toDouble() ?? 0.0;
     }
 
-    // 6. Cash balance
+    // 6. Cash balance (current month)
     for (final tx in results[6]) {
       final amount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
       final type = tx['transaction_type'] as String;
@@ -147,9 +152,15 @@ class DashboardRepository {
       }
     }
 
-    // 7. Bank balance
-    for (final acc in results[7]) {
-      bankBalance += (acc['balance'] as num?)?.toDouble() ?? 0.0;
+    // 7. Bank balance (current month)
+    for (final tx in results[7]) {
+      final amount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
+      final type = tx['transaction_type'] as String;
+      if (type == 'in') {
+        bankBalance += amount;
+      } else if (type == 'out') {
+        bankBalance -= amount;
+      }
     }
 
     // 8. Low stock

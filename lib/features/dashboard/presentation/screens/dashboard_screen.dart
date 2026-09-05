@@ -63,6 +63,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       final todayStr = DateTime(now.year, now.month, now.day)
           .toIso8601String()
           .substring(0, 10);
+      final monthStartStr = DateTime(now.year, now.month, 1)
+          .toIso8601String()
+          .substring(0, 10);
 
       final results = await Future.wait([
         _safeQuery(() => _client
@@ -95,12 +98,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _safeQuery(() => _client
             .from('cash_transactions')
             .select('transaction_type, amount')
-            .eq('business_id', businessId)),
-        _safeQuery(() => _client
-            .from('bank_accounts')
-            .select('id, balance')
             .eq('business_id', businessId)
-            .eq('is_active', true)),
+            .gte('transaction_date', monthStartStr)
+            .lte('transaction_date', todayStr)),
+        _safeQuery(() => _client
+            .from('bank_transactions')
+            .select('transaction_type, amount')
+            .eq('business_id', businessId)
+            .gte('transaction_date', monthStartStr)
+            .lte('transaction_date', todayStr)),
         _safeQuery(() => _client
             .from('products')
             .select('id, name, current_stock, minimum_stock')
@@ -161,8 +167,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           cashBalance -= amount;
         }
       }
-      for (final acc in results[7]) {
-        bankBalance += (acc['balance'] as num?)?.toDouble() ?? 0.0;
+      for (final tx in results[7]) {
+        final amount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
+        final type = tx['transaction_type'] as String;
+        if (type == 'in') {
+          bankBalance += amount;
+        } else if (type == 'out') {
+          bankBalance -= amount;
+        }
       }
 
       final lowStockProducts = <Map<String, dynamic>>[];
