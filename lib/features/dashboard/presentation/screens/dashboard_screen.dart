@@ -29,7 +29,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   double _receivables = 0;
   double _payables = 0;
   List<Map<String, dynamic>> _lowStockProducts = [];
-  List<Map<String, dynamic>> _recentActivity = [];
   double _avgDailySales7d = 0;
   double _avgDailySalesMonth = 0;
   List<Map<String, dynamic>> _productAvg7d = [];
@@ -112,24 +111,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             .select('id, name, current_stock, minimum_stock')
             .eq('business_id', businessId)
             .eq('is_active', true)),
-        _safeQuery(() => _client
-            .from('sales')
-            .select('id, invoice_number, total_amount, invoice_date, status, customer_id')
-            .eq('business_id', businessId)
-            .order('created_at', ascending: false)
-            .limit(5)),
-        _safeQuery(() => _client
-            .from('payments')
-            .select('id, amount, payment_date, payment_mode, customer_id')
-            .eq('business_id', businessId)
-            .order('created_at', ascending: false)
-            .limit(5)),
-        _safeQuery(() => _client
-            .from('expenses')
-            .select('id, amount, description, expense_date, payment_mode')
-            .eq('business_id', businessId)
-            .order('created_at', ascending: false)
-            .limit(5)),
       ]);
 
       double todaySales = 0;
@@ -301,76 +282,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         }
       } catch (_) {}
 
-      final recentSales = results[9];
-      final recentPayments = results[10];
-      final recentExpenses = results[11];
-
-      final customerIds = <String>{};
-      for (final s in recentSales) {
-        final cid = s['customer_id'] as String?;
-        if (cid != null) customerIds.add(cid);
-      }
-      for (final p in recentPayments) {
-        final cid = p['customer_id'] as String?;
-        if (cid != null) customerIds.add(cid);
-      }
-
-      Map<String, String> customerNames = {};
-      if (customerIds.isNotEmpty) {
-        try {
-          final custResult = await _client
-              .from('customers')
-              .select('id, name')
-              .inFilter('id', customerIds.toList());
-          for (final c in custResult) {
-            customerNames[c['id'] as String] = c['name'] as String;
-          }
-        } catch (_) {}
-      }
-
-      final recentActivity = <Map<String, dynamic>>[];
-      for (final sale in recentSales) {
-        final cid = sale['customer_id'] as String?;
-        final custName =
-            (cid != null) ? (customerNames[cid] ?? 'Customer') : 'Customer';
-        recentActivity.add({
-          'type': 'sale',
-          'id': sale['id'] as String,
-          'title': 'Sale - ${sale['invoice_number'] ?? ''}',
-          'subtitle': '$custName - ${String.fromCharCode(8377)}${sale['total_amount'] ?? 0}',
-          'date': sale['invoice_date'] ?? '',
-          'status': sale['status'] ?? '',
-        });
-      }
-      for (final p in recentPayments) {
-        final cid = p['customer_id'] as String?;
-        final custName =
-            (cid != null) ? (customerNames[cid] ?? 'Customer') : 'Customer';
-        recentActivity.add({
-          'type': 'payment',
-          'id': p['id'] as String,
-          'title': 'Payment Received',
-          'subtitle': '$custName - ${String.fromCharCode(8377)}${p['amount'] ?? 0}',
-          'date': p['payment_date'] ?? '',
-          'status': p['payment_mode'] ?? '',
-        });
-      }
-      for (final e in recentExpenses) {
-        recentActivity.add({
-          'type': 'expense',
-          'id': e['id'] as String,
-          'title': 'Expense',
-          'subtitle': '${e['description'] ?? ''} - ${String.fromCharCode(8377)}${e['amount'] ?? 0}',
-          'date': e['expense_date'] ?? '',
-          'status': e['payment_mode'] ?? '',
-        });
-      }
-      recentActivity.sort((a, b) {
-        final aDate = a['date'] as String? ?? '';
-        final bDate = b['date'] as String? ?? '';
-        return bDate.compareTo(aDate);
-      });
-
       setState(() {
         _todaySales = todaySales;
         _todayCollection = todayCollection;
@@ -382,7 +293,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         _receivables = receivables;
         _payables = payables;
         _lowStockProducts = lowStockProducts;
-        _recentActivity = recentActivity;
         _avgDailySales7d = avgDailySales7d;
         _avgDailySalesMonth = avgDailySalesMonth;
         _productAvg7d = productAvg7dMap.entries.map((e) => {'name': e.key, 'avg': e.value}).toList()..sort((a, b) => (b['avg'] as double).compareTo(a['avg'] as double));
@@ -465,9 +375,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       _buildQuickActions(context),
                       const SizedBox(height: 20),
                       _buildLowStockAlerts(context),
-                      const SizedBox(height: 20),
-                      _buildRecentActivity(context),
-                      const SizedBox(height: 20),
                     ],
                   ),
       ),
@@ -899,147 +806,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                 color: Colors.orange,
                 fontWeight: FontWeight.w600,
-              ),
-        ),
-      ],
-    ),
-    );
-  }
-
-  Widget _buildRecentActivity(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Recent Activity',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
-        ),
-        const SizedBox(height: 12),
-        if (_recentActivity.isEmpty)
-          AppCard(
-            margin: EdgeInsets.zero,
-            child: Row(
-              children: [
-                const Icon(Icons.info_outline, color: Colors.grey, size: 20),
-                const SizedBox(width: 12),
-                Text(
-                  'No recent activity',
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey,
-                      ),
-                ),
-              ],
-            ),
-          )
-        else
-          AppCard(
-            margin: EdgeInsets.zero,
-            child: Column(
-              children: [
-                for (int i = 0; i < _recentActivity.length; i++) ...[
-                  if (i > 0) const Divider(),
-                  _buildActivityItem(context, _recentActivity[i]),
-                ],
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildActivityItem(BuildContext context, Map<String, dynamic> activity) {
-    final type = activity['type'] as String;
-    final id = activity['id'] as String? ?? '';
-    final title = activity['title'] as String;
-    final subtitle = activity['subtitle'] as String;
-    final date = activity['date'] as String;
-
-    IconData icon;
-    Color color;
-    switch (type) {
-      case 'sale':
-        icon = Icons.receipt;
-        color = Colors.blue;
-        break;
-      case 'payment':
-        icon = Icons.payments;
-        color = Colors.green;
-        break;
-      case 'expense':
-        icon = Icons.receipt_long;
-        color = Colors.red;
-        break;
-      default:
-        icon = Icons.info;
-        color = Colors.grey;
-    }
-
-    String displayDate = date;
-    try {
-      final parsed = DateTime.parse(date);
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final itemDate = DateTime(parsed.year, parsed.month, parsed.day);
-      final diff = today.difference(itemDate).inDays;
-      if (diff == 0) {
-        displayDate = 'Today';
-      } else if (diff == 1) {
-        displayDate = 'Yesterday';
-      } else {
-        displayDate = DateFormat('d MMM').format(parsed);
-      }
-    } catch (_) {}
-
-    VoidCallback? onTap;
-    if (type == 'sale' && id.isNotEmpty) {
-      onTap = () => context.push('/sales/$id');
-    } else if (type == 'payment') {
-      onTap = () => context.push('/payments');
-    } else if (type == 'expense') {
-      onTap = () => context.push('/expenses');
-    }
-
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Row(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: color.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Icon(icon, color: color, size: 20),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-              Text(
-                subtitle,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
-          ),
-        ),
-        Text(
-          displayDate,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.color
-                    ?.withOpacity(0.5),
               ),
         ),
       ],
