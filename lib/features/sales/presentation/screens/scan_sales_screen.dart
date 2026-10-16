@@ -139,6 +139,10 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
         final data = response.data;
         if (data is Map && data['error'] != null) {
           msg = data['error'].toString();
+          final detail = data['detail'];
+          if (detail != null && detail.toString().trim().isNotEmpty) {
+            msg = '$msg\n${detail.toString()}';
+          }
         }
         throw Exception(msg);
       }

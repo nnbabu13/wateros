@@ -1,6 +1,6 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-3.8-flash";
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
 const corsHeaders = {
@@ -45,20 +45,20 @@ Rules:
 - quantity and amount must be numbers, never null.`;
 
 const responseSchema = {
-  type: "object",
+  type: "OBJECT",
   properties: {
-    date: { type: "string" },
+    date: { type: "STRING" },
     rows: {
-      type: "array",
+      type: "ARRAY",
       items: {
-        type: "object",
+        type: "OBJECT",
         properties: {
-          time: { type: "string" },
-          product: { type: "string" },
-          quantity: { type: "number" },
-          amount: { type: "number" },
-          paid: { type: "boolean" },
-          customer: { type: "string" },
+          time: { type: "STRING" },
+          product: { type: "STRING" },
+          quantity: { type: "NUMBER" },
+          amount: { type: "NUMBER" },
+          paid: { type: "BOOLEAN" },
+          customer: { type: "STRING" },
         },
         required: ["product", "quantity", "amount", "paid", "customer"],
       },
@@ -131,8 +131,8 @@ Deno.serve(async (req) => {
             parts: [
               { text: SYSTEM_PROMPT },
               {
-                inline_data: {
-                  mime_type: mimeType,
+                inlineData: {
+                  mimeType: mimeType,
                   data: imageBase64,
                 },
               },
@@ -141,7 +141,7 @@ Deno.serve(async (req) => {
         ],
         generationConfig: {
           temperature: 0,
-          response_mime_type: "application/json",
+          responseMimeType: "application/json",
           responseSchema,
         },
       }),
@@ -153,7 +153,23 @@ Deno.serve(async (req) => {
   if (!geminiResponse.ok) {
     const detail = await geminiResponse.text().catch(() => "");
     console.error("Gemini error", geminiResponse.status, detail.slice(0, 500));
-    return json({ error: `AI service error (${geminiResponse.status})` }, 502);
+    let hint = "";
+    try {
+      const parsedDetail = JSON.parse(detail);
+      hint =
+        parsedDetail?.error?.message ??
+        parsedDetail?.error?.status ??
+        "";
+    } catch {
+      hint = detail.slice(0, 200);
+    }
+    return json(
+      {
+        error: `AI service error (${geminiResponse.status})`,
+        detail: hint,
+      },
+      502,
+    );
   }
 
   let geminiData: {
