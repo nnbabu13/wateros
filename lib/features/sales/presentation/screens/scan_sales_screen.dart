@@ -8,6 +8,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/utils/business_helper.dart';
 import '../../../../core/widgets/app_bottom_sheet.dart';
+import '../../data/customer_alias_helper.dart';
 import '../../data/models/ocr_sale_row.dart';
 import '../../data/pasted_table_parser.dart';
 import '../../data/sale_save_helper.dart';
@@ -36,6 +37,8 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
   DateTime _invoiceDate = DateTime.now();
   List<Map<String, dynamic>> _customers = [];
   List<Map<String, dynamic>> _allProducts = [];
+  Map<String, String> _customerAliases = {};
+  String? _businessId;
   bool _isLoadingData = true;
   bool _isImporting = false;
   int _importCurrent = 0;
@@ -77,13 +80,17 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
           .order('name');
 
       final results = await Future.wait([customersFuture, productsFuture]);
+      final aliases =
+          await CustomerAliasHelper.loadMap(businessId).catchError((_) => <String, String>{});
 
       if (mounted) {
         final allProducts = List<Map<String, dynamic>>.from(results[1]);
         setState(() {
+          _businessId = businessId;
           _customers = List<Map<String, dynamic>>.from(results[0]);
           _allProducts =
               allProducts.where((p) => p['product_type'] == 'finished_product').toList();
+          _customerAliases = aliases;
           _isLoadingData = false;
         });
       }
@@ -261,6 +268,13 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
   Map<String, dynamic>? _matchCustomer(String text) {
     final n = _normalize(text);
     if (n.isEmpty) return null;
+
+    final aliasId = _customerAliases[n];
+    if (aliasId != null) {
+      final hit = _customers.where((c) => c['id'] == aliasId);
+      if (hit.isNotEmpty) return hit.first;
+    }
+
     for (final c in _customers) {
       if (_normalize(c['name'] as String? ?? '') == n) return c;
     }
@@ -270,6 +284,24 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
       if (cn.contains(n) || n.contains(cn)) return c;
     }
     return null;
+  }
+
+  Future<void> _rememberCustomerAlias(String customerId, String? aliasText) async {
+    final biz = _businessId;
+    if (biz == null || aliasText == null || aliasText.trim().isEmpty) return;
+    final match = _customers.where((c) => c['id'] == customerId);
+    if (match.isEmpty) return;
+    final name = match.first['name'] as String? ?? '';
+    await CustomerAliasHelper.remember(
+      businessId: biz,
+      customerId: customerId,
+      customerName: name,
+      aliasText: aliasText,
+    );
+    final norm = CustomerAliasHelper.normalize(aliasText);
+    if (norm.isNotEmpty && norm != CustomerAliasHelper.normalize(name)) {
+      setState(() => _customerAliases[norm] = customerId);
+    }
   }
 
   void _matchRows() {
@@ -338,6 +370,7 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
 
   Future<void> _editRow(int index) async {
     final row = _rows[index];
+    final originalOcrCustomer = row.customerText;
     var productId = row.productId;
     var productName = row.productName;
     var quantityText = row.quantity.toString();
@@ -422,65 +455,104 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    Autocomplete<Map<String, dynamic>>(
-                      initialValue: TextEditingValue(text: customerText),
-                      displayStringForOption: (c) => c['name'] as String,
-                      optionsMaxHeight: 220,
-                      optionsBuilder: (textEditingValue) {
-                        final query = textEditingValue.text.trim();
-                        if (query.isEmpty) {
-                          return _customers.take(15);
+                    TextFormField(
+                      initialValue: customerText,
+                      textCapitalization: TextCapitalization.words,
+                      decoration: const InputDecoration(
+                        labelText: 'Customer',
+                        hintText: 'Type to search… leave empty for Walk-in',
+                        border: OutlineInputBorder(),
+                        prefixIcon: Icon(Icons.person_outline),
+                      ),
+                      onChanged: (v) {
+                        customerText = v;
+                        if (customerId != null) {
+                          final selected = _customers
+                              .where((c) => c['id'] == customerId);
+                          if (selected.isEmpty ||
+                              (selected.first['name'] as String) != v) {
+                            customerId = null;
+                          }
                         }
-                        final n = _normalize(query);
-                        return _customers
-                            .where((c) {
+                        setSheetState(() {});
+                      },
+                    ),
+                    if (customerText.trim().isEmpty || customerId == null) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        constraints: const BoxConstraints(maxHeight: 160),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.grey.shade300),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Builder(
+                          builder: (context) {
+                            final query = customerText.trim();
+                            final n = _normalize(query);
+                            final matches = _customers.where((c) {
+                              if (query.isEmpty) return true;
                               final cn =
                                   _normalize(c['name'] as String? ?? '');
                               if (cn.isEmpty) return false;
-                              return cn.contains(n) ||
-                                  n.contains(cn) ||
-                                  cn.startsWith(n);
-                            })
-                            .take(20);
-                      },
-                      onSelected: (c) {
-                        setSheetState(() {
-                          customerId = c['id'] as String;
-                          customerText = c['name'] as String;
-                        });
-                      },
-                      fieldViewBuilder: (
-                        context,
-                        controller,
-                        onFieldSubmitted,
-                        isFocused,
-                      ) {
-                        return TextFormField(
-                          controller: controller,
-                          textCapitalization: TextCapitalization.words,
-                          decoration: const InputDecoration(
-                            labelText: 'Customer',
-                            hintText:
-                                'Type to search… leave empty for Walk-in',
-                            border: OutlineInputBorder(),
-                            suffixIcon: Icon(Icons.arrow_drop_down),
-                          ),
-                          onChanged: (v) {
-                            customerText = v;
-                            if (customerId != null) {
-                              final selected = _customers.where(
-                                (c) => c['id'] == customerId,
+                              return cn.contains(n) || n.contains(cn);
+                            }).take(query.isEmpty ? 8 : 20).toList();
+                            if (matches.isEmpty) {
+                              return Padding(
+                                padding: const EdgeInsets.all(10),
+                                child: Text(
+                                  query.isEmpty
+                                      ? 'No customers yet'
+                                      : 'No match — will save as new customer',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey.shade600),
+                                ),
                               );
-                              if (selected.isEmpty ||
-                                  (selected.first['name'] as String) != v) {
-                                customerId = null;
-                              }
                             }
-                            setSheetState(() {});
+                            return ListView.builder(
+                              shrinkWrap: true,
+                              padding: EdgeInsets.zero,
+                              itemCount: matches.length,
+                              itemBuilder: (context, i) {
+                                final c = matches[i];
+                                final name = c['name'] as String? ?? '';
+                                final phone = c['phone'] as String? ?? '';
+                                final selected = c['id'] == customerId;
+                                return ListTile(
+                                  dense: true,
+                                  visualDensity: VisualDensity.compact,
+                                  leading: Icon(
+                                    selected
+                                        ? Icons.check_circle
+                                        : Icons.person_outline,
+                                    size: 20,
+                                    color: selected
+                                        ? Colors.green
+                                        : Colors.grey.shade500,
+                                  ),
+                                  title: Text(name,
+                                      style: const TextStyle(fontSize: 14)),
+                                  subtitle: phone.isEmpty
+                                      ? null
+                                      : Text(phone,
+                                          style:
+                                              const TextStyle(fontSize: 11)),
+                                  onTap: () {
+                                    final typed = customerText;
+                                    final id = c['id'] as String;
+                                    setSheetState(() {
+                                      customerId = id;
+                                      customerText = name;
+                                    });
+                                    _rememberCustomerAlias(id, typed);
+                                  },
+                                );
+                              },
+                            );
                           },
-                        );
-                      },
-                    ),
+                        ),
+                      ),
+                    ],
                     if (customerId != null &&
                         customerText.trim().isNotEmpty) ...[
                       const SizedBox(height: 8),
@@ -618,7 +690,7 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                       width: double.infinity,
                       height: 48,
                       child: ElevatedButton(
-                        onPressed: () {
+                        onPressed: () async {
                           if (!(formKey.currentState?.validate() ?? false)) {
                             return;
                           }
@@ -638,6 +710,11 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                             row.customerId = customerId;
                             row.gstRate = 0;
                           });
+                          final linkedId = customerId;
+                          if (linkedId != null) {
+                            await _rememberCustomerAlias(
+                                linkedId, originalOcrCustomer);
+                          }
                           Navigator.pop(ctx);
                         },
                         child: const Text('Save Entry'),
