@@ -419,20 +419,77 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                       },
                     ),
                     const SizedBox(height: 12),
-                    TextFormField(
-                      initialValue: customerText,
-                      textCapitalization: TextCapitalization.words,
-                      decoration: const InputDecoration(
-                        labelText: 'Customer name',
-                        hintText: 'Leave empty for Walk-in',
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (v) {
-                        customerText = v;
-                        customerId = null;
+                    Autocomplete<Map<String, dynamic>>(
+                      initialValue: TextEditingValue(text: customerText),
+                      displayStringForOption: (c) => c['name'] as String,
+                      optionsMaxHeight: 220,
+                      optionsBuilder: (textEditingValue) {
+                        final query = textEditingValue.text.trim();
+                        if (query.isEmpty) {
+                          return _customers.take(15);
+                        }
+                        final n = _normalize(query);
+                        return _customers
+                            .where((c) {
+                              final cn =
+                                  _normalize(c['name'] as String? ?? '');
+                              if (cn.isEmpty) return false;
+                              return cn.contains(n) ||
+                                  n.contains(cn) ||
+                                  cn.startsWith(n);
+                            })
+                            .take(20);
+                      },
+                      onSelected: (c) {
+                        setSheetState(() {
+                          customerId = c['id'] as String;
+                          customerText = c['name'] as String;
+                        });
+                      },
+                      fieldViewBuilder: (
+                        context,
+                        controller,
+                        onFieldSubmitted,
+                        isFocused,
+                      ) {
+                        return TextFormField(
+                          controller: controller,
+                          textCapitalization: TextCapitalization.words,
+                          decoration: const InputDecoration(
+                            labelText: 'Customer',
+                            hintText:
+                                'Type to search… leave empty for Walk-in',
+                            border: OutlineInputBorder(),
+                            suffixIcon: Icon(Icons.arrow_drop_down),
+                          ),
+                          onChanged: (v) {
+                            customerText = v;
+                            if (customerId != null) {
+                              final selected = _customers.where(
+                                (c) => c['id'] == customerId,
+                              );
+                              if (selected.isEmpty ||
+                                  (selected.first['name'] as String) != v) {
+                                customerId = null;
+                              }
+                            }
+                            setSheetState(() {});
+                          },
+                        );
                       },
                     ),
-                    if (customerId == null &&
+                    if (customerId != null &&
+                        customerText.trim().isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      _MatchingChip(
+                        text: 'Linked to ${_customers.firstWhere(
+                          (c) => c['id'] == customerId,
+                          orElse: () => {'name': customerText},
+                        )['name']}',
+                        color: cs.primary,
+                        icon: Icons.link,
+                      ),
+                    ] else if (customerId == null &&
                         customerText.trim().isNotEmpty &&
                         _matchCustomer(customerText)?['id'] != null) ...[
                       const SizedBox(height: 8),
