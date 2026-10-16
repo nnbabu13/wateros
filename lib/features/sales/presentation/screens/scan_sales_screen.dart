@@ -286,10 +286,10 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
     }
   }
 
-  double get _paidTotal =>
-      _rows.where((r) => r.paid).fold(0, (s, r) => s + r.amount);
-  double get _creditTotal =>
-      _rows.where((r) => !r.paid).fold(0, (s, r) => s + r.amount);
+  double get _paidTotal => _rows.fold<double>(
+      0, (s, r) => s + (r.paid ? r.amount : r.partPaymentAmount));
+  double get _creditTotal => _rows.fold<double>(
+      0, (s, r) => s + (r.paid ? 0 : r.remainingBalance));
   int get _paidCount => _rows.where((r) => r.paid).length;
   int get _creditCount => _rows.where((r) => !r.paid).length;
   bool get _allRowsValid => _rows.isNotEmpty && _rows.every((r) => r.isValid);
@@ -343,6 +343,9 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
     var quantityText = row.quantity.toString();
     var amountText = row.amount > 0 ? row.amount.toStringAsFixed(0) : '';
     var paid = row.paid;
+    var partPaymentText = row.partPaymentAmount > 0
+        ? row.partPaymentAmount.toStringAsFixed(0)
+        : '';
     var timeText = row.time;
     var customerText = row.customerText;
     String? customerId = row.customerId;
@@ -564,8 +567,52 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                       title: const Text('Paid (cash received)'),
                       subtitle:
                           const Text('If off, the sale is on credit (unpaid)'),
-                      onChanged: (v) => setSheetState(() => paid = v),
+                      onChanged: (v) => setSheetState(() {
+                        paid = v;
+                        if (v) partPaymentText = '';
+                      }),
                     ),
+                    if (!paid) ...[
+                      const SizedBox(height: 4),
+                      TextFormField(
+                        initialValue: partPaymentText,
+                        keyboardType:
+                            const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                              RegExp(r'^\d*\.?\d*')),
+                        ],
+                        decoration: const InputDecoration(
+                          labelText: 'Amount received now (optional)',
+                          hintText: 'e.g. 500 for part payment',
+                          prefixText: '₹ ',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        onChanged: (v) => partPaymentText = v,
+                      ),
+                      if ((double.tryParse(partPaymentText) ?? 0) > 0 &&
+                          amountText.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Builder(
+                          builder: (_) {
+                            final total =
+                                double.tryParse(amountText) ?? 0;
+                            final paidNow =
+                                double.tryParse(partPaymentText) ?? 0;
+                            final balance =
+                                (total - paidNow).clamp(0.0, total);
+                            return Text(
+                              'Balance due after this: ₹ ${balance.toStringAsFixed(0)}',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.orange.shade800,
+                                  fontWeight: FontWeight.w500),
+                            );
+                          },
+                        ),
+                      ],
+                    ],
                     const SizedBox(height: 16),
                     SizedBox(
                       width: double.infinity,
@@ -583,6 +630,9 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                             row.amount =
                                 double.tryParse(amountText) ?? row.amount;
                             row.paid = paid;
+                            row.partPaymentAmount = paid
+                                ? 0
+                                : (double.tryParse(partPaymentText) ?? 0);
                             row.time = timeText.trim();
                             row.customerText = customerText.trim();
                             row.customerId = customerId;
@@ -721,7 +771,12 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
             ],
             payments: row.paid
                 ? [SalePaymentInput(mode: 'cash', amount: row.amount)]
-                : const [],
+                : row.partPaymentAmount > 0
+                    ? [
+                        SalePaymentInput(
+                            mode: 'cash', amount: row.partPaymentAmount)
+                      ]
+                    : const [],
             notes: notes,
           );
           success++;
@@ -1287,18 +1342,28 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: (row.paid ? Colors.green : Colors.orange)
+                      color: (row.paid
+                              ? Colors.green
+                              : row.hasPartPayment
+                                  ? Colors.blue
+                                  : Colors.orange)
                           .withOpacity(0.1),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      row.paid ? 'Paid' : 'Credit',
+                      row.paid
+                          ? 'Paid'
+                          : row.hasPartPayment
+                              ? 'Part ₹${row.partPaymentAmount.toStringAsFixed(0)}'
+                              : 'Credit',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                         color: row.paid
                             ? Colors.green.shade700
-                            : Colors.orange.shade800,
+                            : row.hasPartPayment
+                                ? Colors.blue.shade800
+                                : Colors.orange.shade800,
                       ),
                     ),
                   ),

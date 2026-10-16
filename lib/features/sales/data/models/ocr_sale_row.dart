@@ -4,6 +4,7 @@ class OcrSaleRow {
   double quantity;
   double amount;
   bool paid;
+  double partPaymentAmount;
   String customerText;
   String? productId;
   String? productName;
@@ -17,6 +18,7 @@ class OcrSaleRow {
     this.quantity = 1,
     this.amount = 0,
     this.paid = false,
+    this.partPaymentAmount = 0,
     this.customerText = '',
     this.productId,
     this.productName,
@@ -33,6 +35,11 @@ class OcrSaleRow {
   bool get isNewCustomer =>
       customerId == null && customerText.trim().isNotEmpty;
 
+  bool get hasPartPayment => !paid && partPaymentAmount > 0;
+
+  double get remainingBalance =>
+      paid ? 0 : (amount - partPaymentAmount).clamp(0, amount);
+
   bool get isValid =>
       productId != null && quantity > 0 && amount > 0;
 
@@ -42,6 +49,7 @@ class OcrSaleRow {
     double? quantity,
     double? amount,
     bool? paid,
+    double? partPaymentAmount,
     String? customerText,
     String? productId,
     String? productName,
@@ -55,6 +63,7 @@ class OcrSaleRow {
       quantity: quantity ?? this.quantity,
       amount: amount ?? this.amount,
       paid: paid ?? this.paid,
+      partPaymentAmount: partPaymentAmount ?? this.partPaymentAmount,
       customerText: customerText ?? this.customerText,
       productId: productId ?? this.productId,
       productName: productName ?? this.productName,
