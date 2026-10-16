@@ -9,9 +9,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../../core/utils/business_helper.dart';
 import '../../../../core/widgets/app_bottom_sheet.dart';
 import '../../data/models/ocr_sale_row.dart';
+import '../../data/pasted_table_parser.dart';
 import '../../data/sale_save_helper.dart';
 
 enum _ScanStep { pick, extracting, review }
+
+enum _InputMode { photo, paste }
 
 class ScanSalesScreen extends ConsumerStatefulWidget {
   const ScanSalesScreen({super.key});
@@ -22,8 +25,10 @@ class ScanSalesScreen extends ConsumerStatefulWidget {
 
 class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
   final _picker = ImagePicker();
+  final _pasteController = TextEditingController();
 
   _ScanStep _step = _ScanStep.pick;
+  _InputMode _inputMode = _InputMode.photo;
   XFile? _image;
   Uint8List? _imageBytes;
   String? _extractError;
@@ -39,6 +44,12 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
   void initState() {
     super.initState();
     _loadData();
+  }
+
+  @override
+  void dispose() {
+    _pasteController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadData() async {
@@ -200,6 +211,34 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
         _extractError = e.toString().replaceFirst('Exception: ', '');
       });
     }
+  }
+
+  void _parsePastedText() {
+    final text = _pasteController.text;
+    if (text.trim().isEmpty) {
+      setState(() {
+        _extractError =
+            'Paste the table from ChatGPT first, then tap Parse entries.';
+      });
+      return;
+    }
+
+    final result = PastedTableParser.parse(text);
+    if (result.rows.isEmpty) {
+      setState(() {
+        _extractError =
+            'No sale rows found in the pasted text. Ask ChatGPT for a markdown table with columns like Time, Product, Qty, Amount, Paid, Customer.';
+      });
+      return;
+    }
+
+    setState(() {
+      _rows = result.rows;
+      if (result.date != null) _invoiceDate = result.date!;
+      _extractError = null;
+      _step = _ScanStep.review;
+    });
+    _matchRows();
   }
 
   String _normalize(String s) =>
@@ -767,6 +806,93 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
               ],
             ),
           ),
+        SegmentedButton<_InputMode>(
+          segments: const [
+            ButtonSegment(
+              value: _InputMode.photo,
+              icon: Icon(Icons.camera_alt_outlined),
+              label: Text('Photo'),
+            ),
+            ButtonSegment(
+              value: _InputMode.paste,
+              icon: Icon(Icons.content_paste_outlined),
+              label: Text('Paste table'),
+            ),
+          ],
+          selected: {_inputMode},
+          onSelectionChanged: (s) => setState(() {
+            _inputMode = s.first;
+            _extractError = null;
+          }),
+        ),
+        const SizedBox(height: 16),
+        if (_inputMode == _InputMode.paste) _buildPasteSection(cs) else _buildPhotoSection(cs),
+      ],
+    );
+  }
+
+  Widget _buildPasteSection(ColorScheme cs) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Icon(Icons.chat_outlined, size: 48, color: cs.primary),
+                const SizedBox(height: 12),
+                const Text(
+                  'Ask ChatGPT to convert your register photo into a table.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 14),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Example prompt: "Convert this sales register photo into a markdown table with columns Time, Product, Qty, Amount, Paid, Customer"',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _pasteController,
+          maxLines: 10,
+          minLines: 6,
+          decoration: const InputDecoration(
+            hintText:
+                'Paste the table here...\n\n| Time | Product | Qty | Amount | Paid | Customer |\n| 10:30 | Bags | 50 | 1900 | Yes | Durga rao |',
+            border: OutlineInputBorder(),
+            alignLabelWithHint: true,
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 52,
+          child: ElevatedButton.icon(
+            onPressed: _parsePastedText,
+            icon: const Icon(Icons.table_chart_outlined),
+            label: const Text('Parse entries'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: cs.primary,
+              foregroundColor: cs.onPrimary,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildPhotoSection(ColorScheme cs) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
         Card(
           child: Padding(
             padding: const EdgeInsets.all(16),
