@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/utils/business_helper.dart';
-import '../../../../core/utils/cash_transaction_helper.dart';
+import '../../data/sale_save_helper.dart';
 
 class _SaleLineItem {
   String? productId;
@@ -162,28 +162,10 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
   double get _grandTotal =>
       _lineItems.fold(0, (sum, item) => sum + item.lineTotal);
 
-  String _generateInvoiceNumber() {
-    final now = DateTime.now();
-    final prefix = 'INV';
-    final counter = now.millisecondsSinceEpoch % 1000000;
-    return '$prefix-${counter.toString().padLeft(6, '0')}';
-  }
-
   double get _totalPaid => _paymentEntries.fold(0, (sum, e) {
     final amt = double.tryParse(e.controller.text) ?? 0;
     return sum + amt;
   });
-
-  String get _primaryPaymentMode {
-    if (_paymentEntries.isEmpty) return 'cash';
-    final validEntries = _paymentEntries.where((e) {
-      final amt = double.tryParse(e.controller.text) ?? 0;
-      return amt > 0;
-    }).toList();
-    if (validEntries.isEmpty) return 'cash';
-    if (validEntries.length == 1) return validEntries.first.mode;
-    return 'multiple';
-  }
 
   Future<void> _saveSale() async {
     final validItems =
@@ -195,8 +177,6 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
       return;
     }
 
-    final paidAmount = _totalPaid;
-
     setState(() => _isLoading = true);
     try {
       final user = Supabase.instance.client.auth.currentUser;
@@ -204,12 +184,10 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
 
       final businessId = await BusinessHelper.getOrCreateBusinessId();
 
-      // Handle walk-in: create or use a Walk-in customer
       String customerId;
       if (_selectedCustomer != null) {
         customerId = _selectedCustomer!['id'] as String;
       } else {
-        // Find or create a "Walk-in" customer for this business
         var walkIn = await Supabase.instance.client
             .from('customers')
             .select('id')
@@ -232,136 +210,28 @@ class _CreateSaleScreenState extends ConsumerState<CreateSaleScreen> {
         customerId = walkIn['id'] as String;
       }
 
-      String status;
-      if (paidAmount >= _grandTotal) {
-        status = 'paid';
-      } else if (paidAmount > 0) {
-        status = 'partially_paid';
-      } else {
-        status = 'pending';
-      }
-
-      final saleData = {
-        'business_id': businessId,
-        'customer_id': customerId,
-        'invoice_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
-        'subtotal': _subtotal,
-        'discount_amount': _totalDiscount,
-        'discount_percent': 0,
-        'tax_amount': _totalGst,
-        'total_amount': _grandTotal,
-        'paid_amount': paidAmount,
-        'balance_amount': _grandTotal - paidAmount,
-        'payment_mode': _primaryPaymentMode,
-        'status': status,
-        'notes': _notesController.text.isEmpty ? null : _notesController.text,
-      };
-
-      final saleResponse = await Supabase.instance.client
-          .from('sales')
-          .insert(saleData)
-          .select()
-          .single();
-
-      final saleId = saleResponse['id'] as String;
-
-      for (final item in validItems) {
-        final itemData = {
-          'sale_id': saleId,
-          'product_id': item.productId,
-          'product_name': item.productName,
-          'quantity': item.quantity,
-          'unit_price': item.unitPrice,
-          'discount_amount': item.discountAmount,
-          'gst_rate': item.gstRate,
-          'gst_amount': item.gstAmount,
-          'total_amount': item.lineTotal,
-        };
-        await Supabase.instance.client.from('sale_items').insert(itemData);
-      }
-
-      // Process each payment entry
-      for (final entry in _paymentEntries) {
-        final amt = double.tryParse(entry.controller.text) ?? 0;
-        if (amt <= 0) continue;
-
-        final mode = entry.mode;
-
-        // Create payment record and capture its ID
-        final paymentResponse = await Supabase.instance.client
-            .from('payments')
-            .insert({
-              'business_id': businessId,
-              'customer_id': customerId,
-              'sale_id': saleId,
-              'amount': amt,
-              'payment_mode': mode,
-              'payment_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
-            })
-            .select()
-            .single();
-        final paymentId = paymentResponse['id'] as String;
-
-        // Create financial transactions based on mode
-        if (mode == 'cash') {
-          await CashTransactionHelper.recordCashIn(
-            businessId: businessId,
-            amount: amt,
-            referenceType: 'sale',
-            referenceId: paymentId,
-            description: 'Sale ${_generateInvoiceNumber()}',
-            transactionDate: _invoiceDate,
-          );
-        } else if (mode == 'upi' || mode == 'bank_transfer') {
-          final bankAccounts = await Supabase.instance.client
-              .from('bank_accounts')
-              .select('id')
-              .eq('business_id', businessId)
-              .eq('is_active', true)
-              .limit(1);
-          if (bankAccounts.isNotEmpty) {
-            final accId = bankAccounts[0]['id'] as String;
-            final acc = await Supabase.instance.client
-                .from('bank_accounts')
-                .select('balance')
-                .eq('id', accId)
-                .single();
-            final currentBal = (acc['balance'] as num?)?.toDouble() ?? 0;
-            await Supabase.instance.client
-                .from('bank_accounts')
-                .update({'balance': currentBal + amt})
-                .eq('id', accId);
-
-            await Supabase.instance.client.from('bank_transactions').insert({
-              'business_id': businessId,
-              'bank_account_id': accId,
-              'transaction_type': 'in',
-              'amount': amt,
-              'reference_type': 'sale',
-              'reference_id': saleId,
-              'description': 'Sale ${_generateInvoiceNumber()} (${mode.toUpperCase()})',
-              'transaction_date': DateFormat('yyyy-MM-dd').format(_invoiceDate),
-            });
-          }
-        }
-      }
-
-      // Update customer balance (add outstanding amount)
-      final balanceAmount = _grandTotal - paidAmount;
-      if (balanceAmount > 0 && customerId.isNotEmpty) {
-        try {
-          final custData = await Supabase.instance.client
-              .from('customers')
-              .select('current_balance')
-              .eq('id', customerId)
-              .single();
-          final currentBal = (custData['current_balance'] as num?)?.toDouble() ?? 0;
-          await Supabase.instance.client
-              .from('customers')
-              .update({'current_balance': currentBal + balanceAmount})
-              .eq('id', customerId);
-        } catch (_) {}
-      }
+      await SaleSaveHelper.createSale(
+        businessId: businessId,
+        customerId: customerId,
+        invoiceDate: _invoiceDate,
+        items: validItems
+            .map((item) => SaleLineInput(
+                  productId: item.productId!,
+                  productName: item.productName,
+                  quantity: item.quantity,
+                  unitPrice: item.unitPrice,
+                  discountPercent: item.discountPercent,
+                  gstRate: item.gstRate,
+                ))
+            .toList(),
+        payments: _paymentEntries
+            .map((e) => SalePaymentInput(
+                  mode: e.mode,
+                  amount: double.tryParse(e.controller.text) ?? 0,
+                ))
+            .toList(),
+        notes: _notesController.text,
+      );
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

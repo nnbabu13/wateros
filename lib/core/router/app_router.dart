@@ -11,6 +11,7 @@ import '../../features/sales/presentation/screens/sales_screen.dart';
 import '../../features/sales/presentation/screens/create_sale_screen.dart';
 import '../../features/sales/presentation/screens/sale_detail_screen.dart';
 import '../../features/sales/presentation/screens/edit_sale_screen.dart';
+import '../../features/sales/presentation/screens/scan_sales_screen.dart';
 import '../../features/payments/presentation/screens/payments_screen.dart';
 import '../../features/payments/presentation/screens/record_payment_screen.dart';
 import '../../features/suppliers/presentation/screens/suppliers_screen.dart';
@@ -105,6 +106,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
               GoRoute(
                 path: 'create',
                 builder: (context, state) => CreateSaleScreen(),
+              ),
+              GoRoute(
+                path: 'scan',
+                builder: (context, state) => const ScanSalesScreen(),
               ),
               GoRoute(
                 path: ':id',

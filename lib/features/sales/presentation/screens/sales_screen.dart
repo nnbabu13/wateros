@@ -104,6 +104,14 @@ class _SalesScreenState extends State<SalesScreen>
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.document_scanner_outlined),
+            tooltip: 'Scan register page',
+            onPressed: () async {
+              final result = await context.push<bool>('/sales/scan');
+              if (result == true) _loadSales();
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.add),
             onPressed: () async {
               final result = await context.push('/sales/create');
