@@ -672,7 +672,7 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                           border: OutlineInputBorder(),
                           suffixIcon: Icon(Icons.calendar_today, size: 18),
                         ),
-                        child: Text(DateFormat('dd MMM yyyy').format(rowDate)),
+                        child: Text(DateFormat('dd/MM/yyyy').format(rowDate)),
                       ),
                     ),
                     const SizedBox(height: 8),
@@ -1308,8 +1308,8 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                 : 'Register date'),
             subtitle: _distinctDates.length > 1
                 ? Text(
-                    '${DateFormat('dd MMM').format(_distinctDates.first)} – ${DateFormat('dd MMM yyyy').format(_distinctDates.last)}')
-                : Text(DateFormat('dd MMM yyyy').format(_invoiceDate)),
+                    '${DateFormat('dd/MM').format(_distinctDates.first)} – ${DateFormat('dd/MM/yyyy').format(_distinctDates.last)}')
+                : Text(DateFormat('dd/MM/yyyy').format(_invoiceDate)),
             trailing: const Icon(Icons.edit_calendar, size: 20),
             onTap: () async {
               final picked = await showDatePicker(
@@ -1398,7 +1398,7 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                         borderRadius: BorderRadius.circular(6),
                       ),
                       child: Text(
-                        DateFormat('dd MMM').format(row.date!),
+                        DateFormat('dd/MM').format(row.date!),
                         style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.w600,
