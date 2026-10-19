@@ -1,5 +1,6 @@
 class OcrSaleRow {
   String time;
+  DateTime? date;
   String productText;
   double quantity;
   double amount;
@@ -14,6 +15,7 @@ class OcrSaleRow {
 
   OcrSaleRow({
     this.time = '',
+    this.date,
     this.productText = '',
     this.quantity = 1,
     this.amount = 0,
@@ -45,6 +47,8 @@ class OcrSaleRow {
 
   OcrSaleRow copyWith({
     String? time,
+    DateTime? date,
+    bool clearDate = false,
     String? productText,
     double? quantity,
     double? amount,
@@ -59,6 +63,7 @@ class OcrSaleRow {
   }) {
     return OcrSaleRow(
       time: time ?? this.time,
+      date: clearDate ? null : (date ?? this.date),
       productText: productText ?? this.productText,
       quantity: quantity ?? this.quantity,
       amount: amount ?? this.amount,

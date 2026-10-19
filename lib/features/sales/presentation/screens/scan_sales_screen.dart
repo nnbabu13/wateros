@@ -208,6 +208,9 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
       setState(() {
         _invoiceDate = date;
         _rows = parsed;
+        for (final r in _rows) {
+          r.date ??= date;
+        }
         _matchRows();
         _step = _ScanStep.review;
       });
@@ -241,7 +244,14 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
 
     setState(() {
       _rows = result.rows;
-      if (result.date != null) _invoiceDate = result.date!;
+      if (result.dates.isNotEmpty) {
+        _invoiceDate = result.dates.first;
+      } else if (result.date != null) {
+        _invoiceDate = result.date!;
+      }
+      for (final r in _rows) {
+        r.date ??= _invoiceDate;
+      }
       _extractError = null;
       _step = _ScanStep.review;
     });
@@ -322,6 +332,16 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
       0, (s, r) => s + (r.paid ? r.amount : r.partPaymentAmount));
   double get _creditTotal => _rows.fold<double>(
       0, (s, r) => s + (r.paid ? 0 : r.remainingBalance));
+
+  List<DateTime> get _distinctDates {
+    final set = <DateTime>{};
+    for (final r in _rows) {
+      final d = r.date;
+      if (d != null) set.add(DateTime(d.year, d.month, d.day));
+    }
+    final list = set.toList()..sort();
+    return list;
+  }
   int get _paidCount => _rows.where((r) => r.paid).length;
   int get _creditCount => _rows.where((r) => !r.paid).length;
   bool get _allRowsValid => _rows.isNotEmpty && _rows.every((r) => r.isValid);
@@ -380,6 +400,7 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
         ? row.partPaymentAmount.toStringAsFixed(0)
         : '';
     var timeText = row.time;
+    var rowDate = row.date ?? _invoiceDate;
     var customerText = row.customerText;
     String? customerId = row.customerId;
 
@@ -632,6 +653,28 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                       ),
                       onChanged: (v) => timeText = v,
                     ),
+                    const SizedBox(height: 12),
+                    InkWell(
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: ctx,
+                          initialDate: rowDate,
+                          firstDate: DateTime(2020),
+                          lastDate: DateTime.now().add(const Duration(days: 1)),
+                        );
+                        if (picked != null) {
+                          setSheetState(() => rowDate = picked);
+                        }
+                      },
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Sale date',
+                          border: OutlineInputBorder(),
+                          suffixIcon: Icon(Icons.calendar_today, size: 18),
+                        ),
+                        child: Text(DateFormat('dd MMM yyyy').format(rowDate)),
+                      ),
+                    ),
                     const SizedBox(height: 8),
                     SwitchListTile(
                       value: paid,
@@ -706,6 +749,7 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                                 ? 0
                                 : (double.tryParse(partPaymentText) ?? 0);
                             row.time = timeText.trim();
+                            row.date = rowDate;
                             row.customerText = customerText.trim();
                             row.customerId = customerId;
                             row.gstRate = 0;
@@ -832,7 +876,7 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
           await SaleSaveHelper.createSale(
             businessId: businessId,
             customerId: customerId,
-            invoiceDate: _invoiceDate,
+            invoiceDate: row.date ?? _invoiceDate,
             items: [
               SaleLineInput(
                 productId: row.productId!,
@@ -1259,8 +1303,13 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                     ),
                   )
                 : const Icon(Icons.receipt_long),
-            title: const Text('Register date'),
-            subtitle: Text(DateFormat('dd MMM yyyy').format(_invoiceDate)),
+            title: Text(_distinctDates.length > 1
+                ? 'Dates (${_distinctDates.length})'
+                : 'Register date'),
+            subtitle: _distinctDates.length > 1
+                ? Text(
+                    '${DateFormat('dd MMM').format(_distinctDates.first)} – ${DateFormat('dd MMM yyyy').format(_distinctDates.last)}')
+                : Text(DateFormat('dd MMM yyyy').format(_invoiceDate)),
             trailing: const Icon(Icons.edit_calendar, size: 20),
             onTap: () async {
               final picked = await showDatePicker(
@@ -1269,7 +1318,15 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                 firstDate: DateTime(2020),
                 lastDate: DateTime.now().add(const Duration(days: 1)),
               );
-              if (picked != null) setState(() => _invoiceDate = picked);
+              if (picked == null) return;
+              setState(() {
+                _invoiceDate = picked;
+                if (_distinctDates.length <= 1) {
+                  for (final r in _rows) {
+                    r.date = picked;
+                  }
+                }
+              });
             },
           ),
         ),
@@ -1332,6 +1389,25 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
             children: [
               Row(
                 children: [
+                  if (row.date != null && _distinctDates.length > 1) ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: cs.primaryContainer,
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        DateFormat('dd MMM').format(row.date!),
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: cs.onPrimaryContainer,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   if (row.time.isNotEmpty) ...[
                     Container(
                       padding: const EdgeInsets.symmetric(

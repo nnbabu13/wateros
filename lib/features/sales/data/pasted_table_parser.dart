@@ -3,8 +3,15 @@ import 'models/ocr_sale_row.dart';
 class ParsedTableResult {
   final List<OcrSaleRow> rows;
   final DateTime? date;
+  final List<DateTime> dates;
 
-  const ParsedTableResult({required this.rows, this.date});
+  const ParsedTableResult({
+    required this.rows,
+    this.date,
+    this.dates = const [],
+  });
+
+  bool get hasMultipleDates => dates.length > 1;
 }
 
 class PastedTableParser {
@@ -14,52 +21,58 @@ class PastedTableParser {
       return const ParsedTableResult(rows: []);
     }
 
-    final date = _extractDate(cleaned);
     final lines = cleaned
         .split('\n')
         .map((l) => l.trim())
         .where((l) => l.isNotEmpty)
         .toList();
 
-    final tableLines = <String>[];
-    for (final line in lines) {
-      if (_isTableLine(line)) tableLines.add(line);
-    }
-
-    if (tableLines.length < 2) {
-      return ParsedTableResult(rows: _parseDelimitedLines(lines), date: date);
-    }
-
-    final cellsPerLine = tableLines.map(_splitCells).toList();
-    var headerIndex = -1;
-    Map<String, int>? columns;
-
-    for (var i = 0; i < cellsPerLine.length; i++) {
-      final map = _mapHeader(cellsPerLine[i]);
-      if (map != null && map.length >= 3) {
-        headerIndex = i;
-        columns = map;
-        break;
-      }
-    }
-
     final rows = <OcrSaleRow>[];
+    DateTime? sectionDate = _extractDate(cleaned);
+    DateTime? firstSeen;
+    Map<String, int>? columns;
     String lastTime = '';
 
-    final start = headerIndex >= 0 ? headerIndex + 1 : 0;
-    for (var i = start; i < cellsPerLine.length; i++) {
-      final cells = cellsPerLine[i];
+    for (final line in lines) {
+      if (!_isTableLine(line)) {
+        final d = _extractDate(line);
+        if (d != null) {
+          sectionDate = d;
+          firstSeen ??= d;
+        }
+        continue;
+      }
+
+      final cells = _splitCells(line);
       if (_isSeparatorRow(cells)) continue;
 
+      final header = _mapHeader(cells);
+      if (header != null) {
+        columns = header;
+        lastTime = '';
+        continue;
+      }
+
       final OcrSaleRow? row = columns != null
-          ? _rowFromMapped(cells, columns, lastTime)
-          : _rowFromPositional(cells, lastTime);
+          ? _rowFromMapped(cells, columns, lastTime, sectionDate)
+          : _rowFromPositional(cells, lastTime, sectionDate);
       if (row == null) continue;
       if (row.time.isNotEmpty) lastTime = row.time;
+      firstSeen ??= row.date;
       rows.add(row);
     }
 
-    return ParsedTableResult(rows: rows, date: date);
+    final dates = <DateTime>{
+      for (final r in rows)
+        if (r.date != null) r.date!,
+    }.toList()
+      ..sort();
+
+    return ParsedTableResult(
+      rows: rows,
+      date: sectionDate ?? firstSeen ?? (dates.isNotEmpty ? dates.first : null),
+      dates: dates,
+    );
   }
 
   static bool _isTableLine(String line) {
@@ -97,7 +110,13 @@ class PastedTableParser {
     for (var i = 0; i < cells.length; i++) {
       final h = cells[i].toLowerCase().replaceAll(RegExp(r'[^a-z ]'), '').trim();
       if (h.isEmpty) continue;
-      if (!map.containsKey('time') && h.contains('time')) {
+      if (!map.containsKey('date') &&
+          (h == 'date' ||
+              h.startsWith('date ') ||
+              h.contains('invoice date') ||
+              h == 'day')) {
+        map['date'] = i;
+      } else if (!map.containsKey('time') && h.contains('time')) {
         map['time'] = i;
       } else if (!map.containsKey('product') &&
           (h.contains('product') ||
@@ -149,6 +168,7 @@ class PastedTableParser {
     List<String> cells,
     Map<String, int> columns,
     String lastTime,
+    DateTime? sectionDate,
   ) {
     String cell(String key) {
       final idx = columns[key];
@@ -182,8 +202,11 @@ class PastedTableParser {
     }
     if (product.isEmpty || quantity <= 0 || amount <= 0) return null;
 
+    final rowDate = _extractDate(cell('date')) ?? sectionDate;
+
     return OcrSaleRow(
       time: time,
+      date: rowDate,
       productText: product,
       quantity: quantity,
       amount: amount,
@@ -192,7 +215,11 @@ class PastedTableParser {
     );
   }
 
-  static OcrSaleRow? _rowFromPositional(List<String> cells, String lastTime) {
+  static OcrSaleRow? _rowFromPositional(
+    List<String> cells,
+    String lastTime,
+    DateTime? sectionDate,
+  ) {
     if (cells.length < 4) return null;
     if (_isSeparatorRow(cells)) return null;
 
@@ -202,16 +229,27 @@ class PastedTableParser {
     var amount = 0.0;
     var paidRaw = '';
     var customer = '';
+    DateTime? rowDate;
 
-    final timeMatch = RegExp(r'^\d{1,2}:\d{2}').firstMatch(cells[0]);
     var idx = 0;
-    if (timeMatch != null) {
-      time = timeMatch.group(0)!;
+
+    final leadingDate = _extractDate(cells[0]);
+    if (leadingDate != null) {
+      rowDate = leadingDate;
       idx = 1;
-    } else {
-      time = lastTime;
     }
 
+    if (idx < cells.length) {
+      final timeMatch = RegExp(r'^\d{1,2}:\d{2}').firstMatch(cells[idx]);
+      if (timeMatch != null) {
+        time = timeMatch.group(0)!;
+        idx++;
+      } else {
+        time = lastTime;
+      }
+    }
+
+    if (idx >= cells.length) return null;
     product = cells[idx].trim();
     if (idx + 1 < cells.length) qty = _parseNumber(cells[idx + 1]);
     if (idx + 2 < cells.length) amount = _parseNumber(cells[idx + 2]);
@@ -242,6 +280,7 @@ class PastedTableParser {
 
     return OcrSaleRow(
       time: time,
+      date: rowDate ?? sectionDate,
       productText: product,
       quantity: qty,
       amount: amount,
@@ -250,24 +289,21 @@ class PastedTableParser {
     );
   }
 
-  static List<OcrSaleRow> _parseDelimitedLines(List<String> lines) {
-    final rows = <OcrSaleRow>[];
-    String lastTime = '';
-    for (final line in lines) {
-      if (!_isTableLine(line)) continue;
-      final cells = _splitCells(line);
-      if (_isSeparatorRow(cells)) continue;
-      final header = _mapHeader(cells);
-      if (header != null) continue;
-      final row = _rowFromPositional(cells, lastTime);
-      if (row == null) continue;
-      if (row.time.isNotEmpty) lastTime = row.time;
-      rows.add(row);
-    }
-    return rows;
-  }
-
   static DateTime? _extractDate(String text) {
+    if (text.isEmpty) return null;
+
+    final iso = RegExp(r'(\d{4})-(\d{1,2})-(\d{1,2})').firstMatch(text);
+    if (iso != null) {
+      final y = int.tryParse(iso.group(1)!);
+      final mo = int.tryParse(iso.group(2)!);
+      final d = int.tryParse(iso.group(3)!);
+      if (y != null && mo != null && d != null) {
+        try {
+          return DateTime(y, mo, d);
+        } catch (_) {}
+      }
+    }
+
     final m = RegExp(r'(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})').firstMatch(text);
     if (m == null) return null;
     var day = int.tryParse(m.group(1)!) ?? 0;
@@ -323,7 +359,9 @@ class PastedTableParser {
 
   static String _stripPaidWords(String customer) {
     return customer
-        .replaceAll(RegExp(r'\b(paid|unpaid|credit|cash)\b', caseSensitive: false), ' ')
+        .replaceAll(
+            RegExp(r'\b(paid|unpaid|credit|cash)\b', caseSensitive: false),
+            ' ')
         .replaceAll(RegExp(r'\s{2,}'), ' ')
         .trim();
   }
@@ -341,6 +379,7 @@ class PastedTableParser {
     final joined = '$product $customer'.toLowerCase();
     return joined.contains('total') ||
         joined.contains('carry') ||
-        RegExp(r'^\d+\s*(bags?|pcs|nos)$').hasMatch(product.toLowerCase().trim());
+        RegExp(r'^\d+\s*(bags?|pcs|nos)$')
+            .hasMatch(product.toLowerCase().trim());
   }
 }
