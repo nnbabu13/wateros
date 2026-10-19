@@ -64,4 +64,46 @@ class CustomerAliasHelper {
       return {};
     }
   }
+
+  /// Remembers "Bags" → Water Bag etc. when user picks a product.
+  static Future<void> rememberProduct({
+    required String businessId,
+    required String productId,
+    required String productName,
+    required String? aliasText,
+  }) async {
+    final raw = aliasText?.trim() ?? '';
+    if (raw.isEmpty) return;
+    final aliasNorm = normalize(raw);
+    final nameNorm = normalize(productName);
+    if (aliasNorm.isEmpty || aliasNorm == nameNorm) return;
+
+    try {
+      await Supabase.instance.client.from('product_name_aliases').upsert(
+        {
+          'business_id': businessId,
+          'product_id': productId,
+          'alias': raw,
+          'alias_normalized': aliasNorm,
+          'last_used_at': DateTime.now().toUtc().toIso8601String(),
+        },
+        onConflict: 'business_id,alias_normalized',
+      );
+    } catch (_) {}
+  }
+
+  static Future<Map<String, String>> loadProductMap(String businessId) async {
+    try {
+      final rows = await Supabase.instance.client
+          .from('product_name_aliases')
+          .select('alias_normalized, product_id')
+          .eq('business_id', businessId);
+      return {
+        for (final r in List<Map<String, dynamic>>.from(rows))
+          (r['alias_normalized'] as String): r['product_id'] as String,
+      };
+    } catch (_) {
+      return {};
+    }
+  }
 }

@@ -37,7 +37,9 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
   DateTime _invoiceDate = DateTime.now();
   List<Map<String, dynamic>> _customers = [];
   List<Map<String, dynamic>> _allProducts = [];
+  List<Map<String, dynamic>> _matchProducts = [];
   Map<String, String> _customerAliases = {};
+  Map<String, String> _productAliases = {};
   String? _businessId;
   bool _isLoadingData = true;
   bool _isImporting = false;
@@ -82,15 +84,19 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
       final results = await Future.wait([customersFuture, productsFuture]);
       final aliases =
           await CustomerAliasHelper.loadMap(businessId).catchError((_) => <String, String>{});
+      final productAliases = await CustomerAliasHelper.loadProductMap(businessId)
+          .catchError((_) => <String, String>{});
 
       if (mounted) {
         final allProducts = List<Map<String, dynamic>>.from(results[1]);
         setState(() {
           _businessId = businessId;
           _customers = List<Map<String, dynamic>>.from(results[0]);
+          _matchProducts = allProducts;
           _allProducts =
               allProducts.where((p) => p['product_type'] == 'finished_product').toList();
           _customerAliases = aliases;
+          _productAliases = productAliases;
           _isLoadingData = false;
         });
       }
@@ -261,18 +267,72 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
   String _normalize(String s) =>
       s.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '').trim();
 
+  String _stem(String n) {
+    if (n.endsWith('ies') && n.length > 4) {
+      return n.substring(0, n.length - 3) + 'y';
+    }
+    if (n.endsWith('es') && n.length > 3) {
+      return n.substring(0, n.length - 2);
+    }
+    if (n.endsWith('s') && !n.endsWith('ss') && n.length > 2) {
+      return n.substring(0, n.length - 1);
+    }
+    return n;
+  }
+
   Map<String, dynamic>? _matchProduct(String text) {
     final n = _normalize(text);
     if (n.isEmpty) return null;
-    for (final p in _allProducts) {
+    final search = _matchProducts.isNotEmpty ? _matchProducts : _allProducts;
+
+    final aliasId = _productAliases[n] ?? _productAliases[_stem(n)];
+    if (aliasId != null) {
+      final hit = search.where((p) => p['id'] == aliasId);
+      if (hit.isNotEmpty) return hit.first;
+      final hit2 = _allProducts.where((p) => p['id'] == aliasId);
+      if (hit2.isNotEmpty) return hit2.first;
+    }
+
+    for (final p in search) {
       if (_normalize(p['name'] as String? ?? '') == n) return p;
     }
-    for (final p in _allProducts) {
+
+    final nStem = _stem(n);
+    for (final p in search) {
       final pn = _normalize(p['name'] as String? ?? '');
       if (pn.isEmpty) continue;
       if (pn.contains(n) || n.contains(pn)) return p;
+      if (pn.contains(nStem) || nStem.contains(pn)) return p;
+      final ps = _stem(pn);
+      if (ps == nStem) return p;
+      if (ps.contains(nStem) || nStem.contains(ps)) return p;
+    }
+
+    for (final p in search) {
+      final sku = _normalize(p['sku'] as String? ?? '');
+      if (sku.isNotEmpty && (sku == n || sku == nStem)) return p;
     }
     return null;
+  }
+
+  Future<void> _rememberProductAlias(
+      String productId, String? aliasText) async {
+    final biz = _businessId;
+    if (biz == null || aliasText == null || aliasText.trim().isEmpty) return;
+    final search = _matchProducts.isNotEmpty ? _matchProducts : _allProducts;
+    final match = search.where((p) => p['id'] == productId);
+    if (match.isEmpty) return;
+    final name = match.first['name'] as String? ?? '';
+    await CustomerAliasHelper.rememberProduct(
+      businessId: biz,
+      productId: productId,
+      productName: name,
+      aliasText: aliasText,
+    );
+    final norm = CustomerAliasHelper.normalize(aliasText);
+    if (norm.isNotEmpty && norm != CustomerAliasHelper.normalize(name)) {
+      setState(() => _productAliases[norm] = productId);
+    }
   }
 
   Map<String, dynamic>? _matchCustomer(String text) {
@@ -376,6 +436,7 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
         products: _allProducts,
         onSelect: (product) {
           Navigator.pop(ctx);
+          final ocrProductText = _rows[rowIndex].productText;
           setState(() {
             _rows[rowIndex].productId = product['id'] as String;
             _rows[rowIndex].productName = product['name'] as String;
@@ -383,6 +444,7 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                 (product['selling_price'] as num?)?.toDouble() ?? 0;
             _rows[rowIndex].gstRate = 0;
           });
+          _rememberProductAlias(product['id'] as String, ocrProductText);
         },
       ),
     );
@@ -391,6 +453,7 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
   Future<void> _editRow(int index) async {
     final row = _rows[index];
     final originalOcrCustomer = row.customerText;
+    final originalOcrProduct = row.productText;
     var productId = row.productId;
     var productName = row.productName;
     var quantityText = row.quantity.toString();
@@ -758,6 +821,10 @@ class _ScanSalesScreenState extends ConsumerState<ScanSalesScreen> {
                           if (linkedId != null) {
                             await _rememberCustomerAlias(
                                 linkedId, originalOcrCustomer);
+                          }
+                          if (productId != null) {
+                            await _rememberProductAlias(
+                                productId!, originalOcrProduct);
                           }
                           Navigator.pop(ctx);
                         },
