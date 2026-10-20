@@ -131,13 +131,17 @@ class PastedTableParser {
               h == 'no' ||
               h.contains('count'))) {
         map['qty'] = i;
+      } else if (!map.containsKey('cash') &&
+          (h.contains('cash') || h.contains('money'))) {
+        map['cash'] = i;
+      } else if (!map.containsKey('credit') &&
+          h.contains('credit') &&
+          !h.contains('paid')) {
+        map['credit'] = i;
       } else if (!map.containsKey('amount') &&
           (h.contains('amount') ||
-              h.contains('cash') ||
               h.contains('total') ||
               h.contains('price') ||
-              h.contains('money') ||
-              h.contains('credit') ||
               h.contains('rs') ||
               h.contains('rupee'))) {
         map['amount'] = i;
@@ -158,7 +162,9 @@ class PastedTableParser {
     }
     if (map.containsKey('product') &&
         map.containsKey('qty') &&
-        map.containsKey('amount')) {
+        (map.containsKey('cash') ||
+            map.containsKey('credit') ||
+            map.containsKey('amount'))) {
       return map;
     }
     return null;
@@ -184,18 +190,36 @@ class PastedTableParser {
 
     final product = cell('product').replaceAll(RegExp(r'\*+$'), '').trim();
     final quantity = _parseNumber(cell('qty'));
+
+    final cashAmt = _parseNumber(cell('cash'));
+    final creditAmt = _parseNumber(cell('credit'));
     var amount = _parseNumber(cell('amount'));
-    if (amount <= 0) {
-      for (final c in cells) {
-        amount = _parseNumber(c);
-        if (amount > 0) break;
-      }
+
+    bool fromCredit;
+    if (cashAmt > 0 && creditAmt > 0) {
+      amount = cashAmt + creditAmt;
+      fromCredit = false;
+    } else if (cashAmt > 0) {
+      amount = cashAmt;
+      fromCredit = false;
+    } else if (creditAmt > 0) {
+      amount = creditAmt;
+      fromCredit = true;
+    } else {
+      fromCredit = false;
     }
 
     final paidCell = cell('paid');
     final customer = _cleanCustomer(cell('customer'));
-    final paid = _isPaid(paidCell) ||
-        (_isPaid(customer) && !_looksLikeCredit(paidCell));
+
+    bool paid;
+    if (_isPaid(paidCell)) {
+      paid = true;
+    } else if (_looksLikeCredit(paidCell)) {
+      paid = false;
+    } else {
+      paid = !fromCredit;
+    }
 
     if (_isHeaderProduct(product) || _isTotalRow(product, customer)) {
       return null;
@@ -210,7 +234,7 @@ class PastedTableParser {
       productText: product,
       quantity: quantity,
       amount: amount,
-      paid: paid && !_looksLikeCredit(paidCell),
+      paid: paid,
       customerText: _stripPaidWords(customer),
     );
   }
