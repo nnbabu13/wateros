@@ -34,6 +34,7 @@ import '../../features/employees/presentation/screens/employee_detail_screen.dar
 import '../../features/employees/presentation/screens/add_employee_screen.dart';
 import '../../features/attendance/presentation/screens/attendance_screen.dart';
 import '../../features/salary/presentation/screens/salary_screen.dart';
+import '../../features/cashbook/presentation/screens/import_cashbook_screen.dart';
 import '../../features/cashbook/presentation/screens/transactions_screen.dart';
 import '../../features/sales/presentation/screens/daily_sales_screen.dart';
 import '../../features/bankbook/presentation/screens/bankbook_screen.dart';
@@ -280,6 +281,12 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/cashbook',
             builder: (context, state) => const TransactionsScreen(),
+            routes: [
+              GoRoute(
+                path: 'import',
+                builder: (context, state) => const ImportCashbookScreen(),
+              ),
+            ],
           ),
           GoRoute(
             path: '/bankbook',

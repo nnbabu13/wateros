@@ -186,6 +186,14 @@ class _TransactionsScreenState extends State<TransactionsScreen> {
         title: const Text('Transactions'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.file_upload_outlined),
+            tooltip: 'Import income / expenses',
+            onPressed: () async {
+              final imported = await context.push<bool>('/cashbook/import');
+              if (imported == true) _loadData();
+            },
+          ),
+          IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: _loadData,
           ),
