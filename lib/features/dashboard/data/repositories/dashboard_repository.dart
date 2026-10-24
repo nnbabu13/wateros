@@ -1,4 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../../core/utils/product_cost_helper.dart';
 
 class DashboardRepository {
   SupabaseClient get _client => Supabase.instance.client;
@@ -185,40 +186,15 @@ class DashboardRepository {
       if (status == 'absent') absentToday++;
     }
 
-    // COGS: calculate cost of goods sold for today's sales
+    // COGS: same single source of truth as the P&L report
     double todayCogs = 0;
     final todaySaleIds = todaySalesList.map((s) => s['id'] as String).toList();
     if (todaySaleIds.isNotEmpty) {
       try {
-        final saleItems = await _client
-            .from('sale_items')
-            .select('quantity, product_id')
-            .inFilter('sale_id', todaySaleIds);
-
-        final productIds = saleItems
-            .map((item) => item['product_id'] as String)
-            .toSet()
-            .toList();
-        if (productIds.isNotEmpty) {
-          final products = await _client
-              .from('products')
-              .select('id, purchase_price, average_cost')
-              .inFilter('id', productIds);
-
-          final costMap = <String, double>{};
-          for (final p in products) {
-            final avgCost = (p['average_cost'] as num?)?.toDouble() ?? 0;
-            final purchasePrice =
-                (p['purchase_price'] as num?)?.toDouble() ?? 0;
-            costMap[p['id'] as String] = avgCost > 0 ? avgCost : purchasePrice;
-          }
-
-          for (final item in saleItems) {
-            final qty = (item['quantity'] as num?)?.toDouble() ?? 0;
-            final cost = costMap[item['product_id'] as String] ?? 0;
-            todayCogs += qty * cost;
-          }
-        }
+        todayCogs = await ProductCostHelper.calculateCogs(
+          businessId: businessId,
+          saleIds: todaySaleIds,
+        );
       } catch (_) {}
     }
 
