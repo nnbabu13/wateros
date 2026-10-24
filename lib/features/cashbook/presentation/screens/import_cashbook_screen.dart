@@ -919,6 +919,55 @@ class _ImportCashbookScreenState extends ConsumerState<ImportCashbookScreen> {
                           },
                         ),
                       ),
+                      Container(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: OutlinedButton.icon(
+                          onPressed: () async {
+                             final name = await showDialog<String>(
+                               context: context,
+                               builder: (dialogCtx) {
+                                 final ctrl = TextEditingController(
+                                   text: categoryQuery.isNotEmpty
+                                     ? categoryQuery
+                                     : '',
+                                 );
+                                 return AlertDialog(
+                                   title: const Text('New category'),
+                                   content: TextField(
+                                     controller: ctrl,
+                                     decoration: InputDecoration(
+                                       labelText: 'Category name',
+                                       border: OutlineInputBorder(),
+                                     ),
+                                   ),
+                                   actions: [
+                                     TextButton(
+                                       onPressed: () => Navigator.pop(dialogCtx, null),
+                                       child: const Text('Cancel'),
+                                     ),
+                                     TextButton(
+                                       onPressed: () => Navigator.pop(dialogCtx, ctrl.text),
+                                       child: const Text('Create'),
+                                     ),
+                                   ],
+                                 );
+                               },
+                             );
+                            if (name != null && name.trim().isNotEmpty) {
+                              final id =
+                                  await _ensureCategory(_businessId!,
+                                  name.trim());
+                              setSheetState(() {
+                                categoryId = id;
+                                categoryName = name.trim();
+                                categoryQuery = categoryName;
+                              });
+                            }
+                          },
+                          icon: const Icon(Icons.add),
+                          label: const Text('Create new category'),
+                        ),
+                      ),
                     ] else ...[
                       const SizedBox(height: 4),
                       TextFormField(
